@@ -146,45 +146,46 @@ let opcodes = [
 ];
 
 // Taken from: https://github.com/solana-labs/solana/blob/27eff8408b7223bb3c4ab70523f8a8dca3ca6645/sdk/program/src/syscalls/definitions.rs#L39
+// Syscall descriptions taken from: https://web.archive.org/web/20231004144333/https://bpf.wtf/sol-0x04-syscalls/
 // TODO: Check for updates from https://github.com/anza-xyz/agave/blob/master/sdk/program/src/syscalls/definitions.rs
 let syscalls = [
-  { label: 'abort', description: 'panic!()' },
-  { label: 'sol_log_', description: 'fn sol_log_(message: *const u8, len: u64)' },
-  { label: 'sol_log_64_', description: 'fn sol_log_64_(arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64)' },
-  { label: 'sol_log_compute_units_', description: 'fn sol_log_compute_units_()' },
-  { label: 'sol_log_pubkey', description: 'fn sol_log_pubkey(pubkey_addr: *const u8)' },
-  { label: 'sol_create_program_address', description: 'fn sol_create_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8) -> u64)' },
-  { label: 'sol_try_find_program_address', description: 'fn sol_try_find_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8, bump_seed_addr: *const u8) -> u64)' },
-  { label: 'sol_sha256', description: 'fn sol_sha256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' },
-  { label: 'sol_keccak256', description: 'fn sol_keccak256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' },
-  { label: 'sol_secp256k1_recover', description: 'fn sol_secp256k1_recover(hash: *const u8, recovery_id: u64, signature: *const u8, result: *mut u8) -> u64)' },
-  { label: 'sol_blake3', description: 'fn sol_blake3(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' },
-  { label: 'sol_get_clock_sysvar', description: 'fn sol_get_clock_sysvar(addr: *mut u8) -> u64)' },
-  { label: 'sol_get_epoch_schedule_sysvar', description: 'fn sol_get_epoch_schedule_sysvar(addr: *mut u8) -> u64)' },
-  { label: 'sol_get_fees_sysvar', description: 'fn sol_get_fees_sysvar(addr: *mut u8) -> u64)' },
-  { label: 'sol_get_rent_sysvar', description: 'fn sol_get_rent_sysvar(addr: *mut u8) -> u64)' },
-  { label: 'sol_get_last_restart_slot', description: 'fn sol_get_last_restart_slot(addr: *mut u8) -> u64)' },
-  { label: 'sol_memcpy_', description: 'fn sol_memcpy_(dst: *mut u8, src: *const u8, n: u64)' },
-  { label: 'sol_memmove_', description: 'fn sol_memmove_(dst: *mut u8, src: *const u8, n: u64)' },
-  { label: 'sol_memcmp_', description: 'fn sol_memcmp_(s1: *const u8, s2: *const u8, n: u64, result: *mut i32)' },
-  { label: 'sol_memset_', description: 'fn sol_memset_(s: *mut u8, c: u8, n: u64)' },
-  { label: 'sol_invoke_signed_c', description: 'fn sol_invoke_signed_c(instruction_addr: *const u8, account_infos_addr: *const u8, account_infos_len: u64, signers_seeds_addr: *const u8, signers_seeds_len: u64) -> u64)' },
-  { label: 'sol_invoke_signed_rust', description: 'fn sol_invoke_signed_rust(instruction_addr: *const u8, account_infos_addr: *const u8, account_infos_len: u64, signers_seeds_addr: *const u8, signers_seeds_len: u64) -> u64)' },
-  { label: 'sol_set_return_data', description: 'fn sol_set_return_data(data: *const u8, length: u64)' },
-  { label: 'sol_get_return_data', description: 'fn sol_get_return_data(data: *mut u8, length: u64, program_id: *mut Pubkey) -> u64)' },
-  { label: 'sol_log_data', description: 'fn sol_log_data(data: *const u8, data_len: u64)' },
-  { label: 'sol_get_processed_sibling_instruction', description: 'fn sol_get_processed_sibling_instruction(index: u64, meta: *mut ProcessedSiblingInstruction, program_id: *mut Pubkey, data: *mut u8, accounts: *mut AccountMeta) -> u64)' },
-  { label: 'sol_get_stack_height', description: 'fn sol_get_stack_height() -> u64)' },
-  { label: 'sol_curve_validate_point', description: 'fn sol_curve_validate_point(curve_id: u64, point_addr: *const u8, result: *mut u8) -> u64)' },
-  { label: 'sol_curve_group_op', description: 'fn sol_curve_group_op(curve_id: u64, group_op: u64, left_input_addr: *const u8, right_input_addr: *const u8, result_point_addr: *mut u8) -> u64)' },
-  { label: 'sol_curve_multiscalar_mul', description: 'fn sol_curve_multiscalar_mul(curve_id: u64, scalars_addr: *const u8, points_addr: *const u8, points_len: u64, result_point_addr: *mut u8) -> u64)' },
-  { label: 'sol_curve_pairing_map', description: 'fn sol_curve_pairing_map(curve_id: u64, point: *const u8, result: *mut u8) -> u64)' },
-  { label: 'sol_alt_bn128_group_op', description: 'fn sol_alt_bn128_group_op(group_op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' },
-  { label: 'sol_big_mod_exp', description: 'fn sol_big_mod_exp(params: *const u8, result: *mut u8) -> u64)' },
-  { label: 'sol_get_epoch_rewards_sysvar', description: 'fn sol_get_epoch_rewards_sysvar(addr: *mut u8) -> u64)' },
-  { label: 'sol_poseidon', description: 'fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' },
-  { label: 'sol_remaining_compute_units', description: 'fn sol_remaining_compute_units() -> u64)' },
-  { label: 'sol_alt_bn128_compression', description: 'fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' },
+  { label: 'abort', description: 'panic!() | Aborts the VM with SyscallError::Abort and never returns.' },
+  { label: 'sol_log_', description: 'fn sol_log_(message: *const u8, len: u64) | Writes a log entry to the Sealevel logging facility.' },
+  { label: 'sol_log_64_', description: 'fn sol_log_64_(arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) | Writes a log entry containing five 64-bit integers to the Sealevel logging facility.' },
+  { label: 'sol_log_compute_units_', description: 'fn sol_log_compute_units_() | Writes the current compute unit consumption to the Sealevel logging facility.' },
+  { label: 'sol_log_pubkey', description: 'fn sol_log_pubkey(pubkey_addr: *const u8) | Writes a log entry with a Base58-encoded Solana public key.' },
+  { label: 'sol_create_program_address', description: 'fn sol_create_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8) -> u64) | Calculates a program-derived address (PDA) from the given program ID and seed list.' },
+  { label: 'sol_try_find_program_address', description: 'fn sol_try_find_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8, bump_seed_addr: *const u8) -> u64) | Calculates a program-derived address (PDA) and bump seed from the given program ID and seed list.' },
+  { label: 'sol_sha256', description: 'fn sol_sha256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64) | Calculates the SHA-256 hash for the given byte inputs.' },
+  { label: 'sol_keccak256', description: 'fn sol_keccak256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64) | Calculates the Keccak-256 hash for the given byte inputs.' },
+  { label: 'sol_secp256k1_recover', description: 'fn sol_secp256k1_recover(hash: *const u8, recovery_id: u64, signature: *const u8, result: *mut u8) -> u64) | Recovers a secp256k1 public key from a signed message.' },
+  { label: 'sol_blake3', description: 'fn sol_blake3(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64) | Calculates the BLAKE3 hash for the given byte inputs.' },
+  { label: 'sol_get_clock_sysvar', description: 'fn sol_get_clock_sysvar(addr: *mut u8) -> u64) | Writes the clock sysvar to the pointer in r1.' },
+  { label: 'sol_get_epoch_schedule_sysvar', description: 'fn sol_get_epoch_schedule_sysvar(addr: *mut u8) -> u64) | Writes the epoch schedule sysvar to the pointer in r1.' },
+  { label: 'sol_get_fees_sysvar', description: 'fn sol_get_fees_sysvar(addr: *mut u8) -> u64) | Writes the fees sysvar to the pointer in r1.' },
+  { label: 'sol_get_rent_sysvar', description: 'fn sol_get_rent_sysvar(addr: *mut u8) -> u64) | Writes the rent sysvar to the pointer in r1.' },
+  { label: 'sol_get_last_restart_slot', description: 'fn sol_get_last_restart_slot(addr: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_memcpy_', description: 'fn sol_memcpy_(dst: *mut u8, src: *const u8, n: u64) | Copies n bytes from memory area src to memory area dest. The memory areas must NOT overlap.' },
+  { label: 'sol_memmove_', description: 'fn sol_memmove_(dst: *mut u8, src: *const u8, n: u64) | Copies n bytes from memory area src to memory area dest. The memory areas may overlap.' },
+  { label: 'sol_memcmp_', description: 'fn sol_memcmp_(s1: *const u8, s2: *const u8, n: u64, result: *mut i32 | Compares the first n bytes (each interpreted as unsigned char) of the memory areas s1 and s2.)' },
+  { label: 'sol_memset_', description: 'fn sol_memset_(s: *mut u8, c: u8, n: u64) | Fills the first n bytes of the memory area pointed to by s with the constant byte c.' },
+  { label: 'sol_invoke_signed_c', description: 'fn sol_invoke_signed_c(instruction_addr: *const u8, account_infos_addr: *const u8, account_infos_len: u64, signers_seeds_addr: *const u8, signers_seeds_len: u64) -> u64) | Executes a cross-program invocation (CPI) given a Sealevel instruction, account infos and a list of seed list to derive signers. Each seed list determines one PDA to set as a signer.' },
+  { label: 'sol_invoke_signed_rust', description: 'fn sol_invoke_signed_rust(instruction_addr: *const u8, account_infos_addr: *const u8, account_infos_len: u64, signers_seeds_addr: *const u8, signers_seeds_len: u64) -> u64) | Executes a cross-program invocation (CPI) given a Sealevel instruction, account infos and a list of seed list to derive signers. Each seed list determines one PDA to set as a signer.' },
+  { label: 'sol_set_return_data', description: 'fn sol_set_return_data(data: *const u8, length: u64) | Sets the return data of the current instruction. This data can be retrieved with sol_get_return_data in the parent instruction`s context.' },
+  { label: 'sol_get_return_data', description: 'fn sol_get_return_data(data: *mut u8, length: u64, program_id: *mut Pubkey) -> u64) | Retrieves the return data of the CPI that has last returned back to the current context.' },
+  { label: 'sol_log_data', description: 'fn sol_log_data(data: *const u8, data_len: u64) | Writes a log entry containing Base64-encoded to the Sealevel logging facility.' },
+  { label: 'sol_get_processed_sibling_instruction', description: 'fn sol_get_processed_sibling_instruction(index: u64, meta: *mut ProcessedSiblingInstruction, program_id: *mut Pubkey, data: *mut u8, accounts: *mut AccountMeta) -> u64) | Copies data of a processed sibling Sealevel instruction to memory. For transaction-level instructions, the list of sibling instructions are the programs that have been invoked previously in the same transaction. Otherwise, it is the list of CPIs that the parent instruction has executed.' },
+  { label: 'sol_get_stack_height', description: 'fn sol_get_stack_height() -> u64) | Returns the height of the Sealevel invocation stack, which is 1 at transaction level and increases for every cross-program invocation. Note that this is unrelated to the SBF call stack.' },
+  { label: 'sol_curve_validate_point', description: 'fn sol_curve_validate_point(curve_id: u64, point_addr: *const u8, result: *mut u8) -> u64) | Validates an elliptic curve point. Returns 0 if the point is valid, otherwise 1.' },
+  { label: 'sol_curve_group_op', description: 'fn sol_curve_group_op(curve_id: u64, group_op: u64, left_input_addr: *const u8, right_input_addr: *const u8, result_point_addr: *mut u8) -> u64) | Provides elliptic curve group operations. Returns 0 on success, otherwise 1.' },
+  { label: 'sol_curve_multiscalar_mul', description: 'fn sol_curve_multiscalar_mul(curve_id: u64, scalars_addr: *const u8, points_addr: *const u8, points_len: u64, result_point_addr: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_curve_pairing_map', description: 'fn sol_curve_pairing_map(curve_id: u64, point: *const u8, result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_alt_bn128_group_op', description: 'fn sol_alt_bn128_group_op(group_op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_big_mod_exp', description: 'fn sol_big_mod_exp(params: *const u8, result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_get_epoch_rewards_sysvar', description: 'fn sol_get_epoch_rewards_sysvar(addr: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_poseidon', description: 'fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_remaining_compute_units', description: 'fn sol_remaining_compute_units() -> u64)' }, //Needs Description
+  { label: 'sol_alt_bn128_compression', description: 'fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description
 ];
 
 connection.onInitialize((params: InitializeParams) => {
