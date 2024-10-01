@@ -38,8 +38,8 @@ const dst_src = '${1'+registers+'}, ${2'+registers+'}';
 const dst_src_off = '${1'+registers+'}, [${2'+registers+'}+${3:0x}]';
 const dst_off_imm = '[${1'+registers+'}+${2:0x}], ${3:0x0}';
 const dst_off_src = '[${1'+registers+'}+${2:0x}], ${3'+registers+'}';
-const src_imm_off =  '${1|'+registers+'|}, ${2:0x}, +${3:0x}';
-const src_dst_off = '${1|'+registers+'|}, ${2|'+registers+'|}, +${3:0x}';
+const src_imm_off =  '${1'+registers+'}, ${2:0x}, +${3:0x}';
+const src_dst_off = '${1'+registers+'}, ${2'+registers+'}, +${3:0x}';
 
 let snippets = {
   // dst, imm
