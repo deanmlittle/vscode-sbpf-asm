@@ -2,7 +2,7 @@
   "name": "vscode-sbpf-asm",
   "displayName": "sbpf-asm",
   "description": "sBPF Assembly support for VSCode",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icon": "icons/logo.png",
   "publisher": "deanmlittle",
   "repository": { "url": "https://github.com/deanmlittle/vscode-sbpf-asm.git"},
