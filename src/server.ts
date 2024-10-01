@@ -68,7 +68,7 @@ let snippets = {
   alu64_reg: dst_src,
   // dst, imm[16, 32, 64]
   end: dst_end,
-  exit: "exit",
+  exit: "",
   call: "${1|abort,sol_log_,sol_log_64_,sol_log_compute_units_,sol_log_pubkey,sol_create_program_address,sol_try_find_program_address,sol_sha256,sol_keccak256,sol_secp256k1_recover,sol_blake3,sol_get_clock_sysvar,sol_get_epoch_schedule_sysvar,sol_get_fees_sysvar,sol_get_rent_sysvar,sol_get_last_restart_slot,sol_memcpy_,sol_memmove_,sol_memcmp_,sol_memset_,sol_invoke_signed_c,sol_invoke_signed_rust,sol_set_return_data,sol_get_return_data,sol_log_data,sol_get_processed_sibling_instruction,sol_get_stack_height,sol_curve_validate_point,sol_curve_group_op,sol_curve_multiscalar_mul,sol_curve_pairing_map,sol_alt_bn128_group_op,sol_big_mod_exp,sol_get_epoch_rewards_sysvar,sol_poseidon,sol_remaining_compute_units,sol_alt_bn128_compression|}"
 }
 
@@ -186,8 +186,8 @@ let opcodes = [
   { code: 'jslt', label: 'jslt_reg', description: 'jslt dst, src, +off\n\nPC += off if dst < src (signed)', snippet: snippets.ja_reg },
   { code: 'jsle', label: 'jsle_imm', description: 'jsle dst, imm, +off\n\nPC += off if dst <= imm (signed)', snippet: snippets.ja_imm },
   { code: 'jsle', label: 'jsle_reg', description: 'jsle dst, src, +off\n\nPC += off if dst <= src (signed)', snippet: snippets.ja_reg },
-  { code: 'call', label: 'call_imm', description: 'call imm\n\nsyscall function call to syscall with key imm', snippet: snippets.call },
-  { code: 'exit', label: 'exit_reg', description: 'exit\n\nreturn r0', snippet: snippets.exit },
+  { code: 'call', label: 'call', description: 'call imm\n\nsyscall function call to syscall with key imm', snippet: snippets.call },
+  { code: 'exit', label: 'exit', description: 'exit\n\nreturn r0', snippet: snippets.exit },
 ];
 
 // Taken from: https://github.com/solana-labs/solana/blob/27eff8408b7223bb3c4ab70523f8a8dca3ca6645/sdk/program/src/syscalls/definitions.rs#L39
@@ -278,7 +278,7 @@ connection.onCompletion(
       completions.push({
         label: opcode.label,
         kind: CompletionItemKind.Snippet,
-        insertText: opcode.code + " " + opcode.snippet,
+        insertText: [opcode.code, opcode.snippet].join(" ").trim(),
         insertTextFormat: InsertTextFormat.Snippet,
         data: opcode.label
       });
