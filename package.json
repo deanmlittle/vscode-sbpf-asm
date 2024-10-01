@@ -4,6 +4,7 @@
   "description": "sBPF Assembly support for VSCode",
   "version": "0.0.2",
   "icon": "icons/logo.png",
+  "publisher": "deanmlittle",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -53,7 +54,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.7",
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.93.0",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0",
     "@typescript-eslint/parser": "^8.3.0",
     "@vscode/test-cli": "^0.0.10",
