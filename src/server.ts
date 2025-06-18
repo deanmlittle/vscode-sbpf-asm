@@ -21,10 +21,17 @@ import {
 
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { promisify } from "util";
+import { exec } from "child_process";
 
 const connection: ProposedFeatures.Connection = createConnection(ProposedFeatures.all);
 
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+
+const execPromise = promisify(exec);
+const VALIDATE_BUILD_DEBOUNCE_MS = 100;
+let validateBuildTimer: NodeJS.Timeout | undefined;
+let workspaceRoot: string | null = null;
 
 console.log('sBPF Assembly Language Server is starting...');
 
@@ -254,6 +261,11 @@ pub struct EpochRewards {
 
 connection.onInitialize((params: InitializeParams) => {
   console.log('sBPF Language server initialized.');
+
+  if (params.workspaceFolders && params.workspaceFolders.length > 0) {
+    workspaceRoot = params.workspaceFolders[0].uri.replace("file://", "");
+  }
+
   return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -370,6 +382,7 @@ function getWordRangeAtPosition(
 // Listen for document changes
 documents.onDidChangeContent((change) => {
   validateTextDocument(change.document);
+  validateBuild(change.document);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
@@ -414,6 +427,60 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
   }
 
   connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+}
+
+// Listen for document save
+documents.onDidSave((event) => {
+  validateBuild(event.document);
+});
+
+async function validateBuild(document: TextDocument): Promise<void> {
+  if (validateBuildTimer) {
+    clearTimeout(validateBuildTimer);
+  }
+
+  validateBuildTimer = setTimeout(async () => {
+    const diagnostics: Diagnostic[] = [];
+
+    try {
+      if (!workspaceRoot) {
+        console.warn("No workspace root found");
+        return;
+      }
+
+      const { stderr } = await execPromise("sbpf build", {
+        cwd: workspaceRoot,
+      }).catch((error) => error);
+      const lines = stderr.split("\n");
+
+      for (const line of lines) {
+        // Extract message and position
+        const match = line.match(/^(.+):(\d+):(\d+): (.+?: .+)$/);
+        if (match) {
+          const [_, file, lineStr, colStr, message] = match;
+          const line = parseInt(lineStr) - 1;
+          const col = parseInt(colStr) - 1;
+
+          if (document.uri.endsWith(file)) {
+            const position = Position.create(line, col);
+            const range = getWordRangeAtPosition(document, position);
+
+            diagnostics.push({
+              severity: DiagnosticSeverity.Error,
+              range,
+              message,
+              source: "solana-ebpf",
+              code: "build-error",
+            });
+          }
+        }
+      }
+    } catch (error) {
+      // Ignore error
+    }
+
+    connection.sendDiagnostics({ uri: document.uri, diagnostics });
+  }, VALIDATE_BUILD_DEBOUNCE_MS);
 }
 
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
