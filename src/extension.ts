@@ -67,6 +67,9 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+    const cfg = vscode.workspace.getConfiguration('sbpf-asm');
+    const showEol = cfg.get<boolean>('showEolInfo', true);
+
     // Highlight current line
     const sel = editor.selection.active;
     const activeRange = new vscode.Range(sel.line, 0, sel.line, 0);
@@ -77,16 +80,14 @@ export function activate(context: vscode.ExtensionContext) {
     const parsed = parseInstruction(lineText);
     const decoOptions: vscode.DecorationOptions[] = [];
 
-    if (parsed) {
+    if (parsed && showEol) {
       const summary = describeInstruction(parsed);
       const meta = formatFields(parsed);
       const parts: string[] = [];
       if (summary) {
         parts.push(`# ${summary.text}`);
       }
-      if (meta) {
-        parts.push(`; ${meta}`);
-      }
+      if (meta) parts.push(`; ${meta}`);
       const content = parts.join('    ');
       if (content) {
         decoOptions.push({
@@ -118,6 +119,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTextEditor(onEditorChanged),
     vscode.window.onDidChangeTextEditorSelection(e => onEditorChanged(e.textEditor)),
     vscode.workspace.onDidChangeTextDocument(onDocChanged),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('sbpf-asm.showEolInfo')) {
+        updateDecorations(vscode.window.activeTextEditor);
+      }
+    }),
   );
 }
 
