@@ -18,6 +18,7 @@ import {
   DiagnosticSeverity,
   InsertTextFormat
 } from 'vscode-languageserver/node';
+/* eslint-disable curly */
 
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -91,7 +92,7 @@ let snippets = {
   end: dst_end,
   exit: "",
   call: "${1|abort,sol_log_,sol_log_64_,sol_log_compute_units_,sol_log_pubkey,sol_create_program_address,sol_try_find_program_address,sol_sha256,sol_keccak256,sol_secp256k1_recover,sol_blake3,sol_get_clock_sysvar,sol_get_epoch_schedule_sysvar,sol_get_fees_sysvar,sol_get_rent_sysvar,sol_get_last_restart_slot,sol_memcpy_,sol_memmove_,sol_memcmp_,sol_memset_,sol_invoke_signed_c,sol_invoke_signed_rust,sol_set_return_data,sol_get_return_data,sol_log_data,sol_get_processed_sibling_instruction,sol_get_stack_height,sol_curve_validate_point,sol_curve_group_op,sol_curve_multiscalar_mul,sol_curve_pairing_map,sol_alt_bn128_group_op,sol_big_mod_exp,sol_get_epoch_rewards_sysvar,sol_poseidon,sol_remaining_compute_units,sol_alt_bn128_compression|}"
-}
+};
 
 let opcodes = [
   { code: 'lddw', label: 'lddw_imm', description: 'lddw dst, imm\n\ndst = imm', snippet: snippets.ld },
@@ -370,27 +371,32 @@ connection.onHover((params) => {
   const document = documents.get(params.textDocument.uri);
   if (!document) { return null; }
   const position = params.position;
+
   const wordRange = getWordRangeAtPosition(document, position);
   const word = document.getText(wordRange);
+  let header: string | null = null;
 
   const opcode = opcodes.find((o) => o.code === word);
-  if (opcode) {
-    return {
-      contents: {
-        kind: 'markdown',
-        value: `**${opcode.label}**\n\n${opcode.description}`
-      }
-    };
-  }
+  if (opcode) header = `**${opcode.label}**\n\n${opcode.description}`;
 
   const syscall = syscalls.find((s) => s.label === word);
-  if (syscall) {
-    return {
-      contents: {
-        kind: 'markdown',
-        value: `**${syscall.label}**\n\n${syscall.description}`
-      }
-    };
+  if (syscall) header = `**${syscall.label}**\n\n${syscall.description}`;
+
+  const lineText = document.getText({
+    start: { line: position.line, character: 0 },
+    end: { line: position.line, character: Number.MAX_SAFE_INTEGER }
+  });
+  const extended = getInstructionHover(lineText);
+
+  if (header || extended) {
+    const parts: string[] = [];
+    if (header) parts.push(header);
+    if (extended) {
+      const ext = extended.contents as any;
+      const md = typeof ext === 'string' ? ext : (ext.value ?? '');
+      if (md) parts.push(md);
+    }
+    return { contents: { kind: 'markdown', value: parts.join('\n\n') } } as Hover;
   }
 
   const symbols = documentSymbols.get(document.uri);
@@ -469,6 +475,308 @@ function getWordRangeAtPosition(
     start: document.positionAt(start),
     end: document.positionAt(end)
   };
+}
+
+type ParsedInstruction = {
+  opcode: string;
+  variant?: string;
+  dst?: number;
+  src?: number;
+  offset?: number | string;
+  imm?: number | string;
+  size?: 8 | 16 | 32 | 64;
+};
+
+function getInstructionHover(rawLine: string) {
+  const parsed = parseInstruction(rawLine);
+  if (!parsed) return null;
+
+  const summary = describeInstruction(parsed);
+  const meta = formatFields(parsed);
+  if (!meta) return null;
+
+  return {
+    contents: {
+      kind: 'markdown',
+      value: `\n\`\`\`text\n${meta}\n\`\`\``
+    }
+  } as Hover;
+}
+
+function splitArgs(s: string): string[] {
+  if (!s) return [];
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '[') depth++;
+    if (ch === ']') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      out.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+function parseInstruction(line: string): ParsedInstruction | null {
+  let l = line.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, '');
+  l = l.replace(/^[A-Za-z_]\w*:\s*/, '').trim();
+  if (!l) return null;
+
+  const m = l.match(/^(\w+)\b\s*(.*)$/);
+  if (!m) return null;
+  const opcode = m[1].toLowerCase();
+  const rest = (m[2] || '').trim();
+  const args = splitArgs(rest);
+
+  const regNum = (t: string) => {
+    const rm = t.trim().match(/^r(\d{1,2})$/i);
+    return rm ? Number(rm[1]) : undefined;
+  };
+  const parseNum = (t: string): number | undefined => {
+    const s = t.trim();
+    if (/^[+-]?0x[0-9a-f]+$/i.test(s)) return Number(BigInt(s));
+    if (/^[+-]?\d+$/.test(s)) return Number(s);
+    return undefined;
+  };
+  const parseOffset = (t: string): number | undefined => parseNum(t?.replace(/^\+/, ''));
+
+  const mem = (t: string) => {
+    const txt = t.trim();
+    const mm = txt.match(/^\[\s*(r\d{1,2})\s*([+-])\s*([^\]]+)\s*\]$/i) || txt.match(/^\[\s*(r\d{1,2})\s*\+\s*([^\]]+)\s*\]$/i);
+    if (!mm) return null;
+    const base = regNum(mm[1])!;
+    const sign = mm[2] === '-' ? -1 : 1;
+    const offRaw = (mm[3] ?? '').trim();
+    const offNum = parseNum(offRaw);
+    const off = offNum !== undefined ? sign * offNum : undefined;
+    const offSym = offNum === undefined ? (sign === -1 ? `-${offRaw}` : offRaw) : undefined;
+    return { base, off, offSym } as { base: number; off?: number; offSym?: string };
+  };
+
+  const loadSize: Record<string, 8|16|32|64> = { ldxb:8, ldxh:16, ldxw:32, ldxdw:64 };
+  const storeSize: Record<string, 8|16|32|64> = { stb:8, sth:16, stw:32, stdw:64, stxb:8, stxh:16, stxw:32, stxdw:64 };
+
+  if (opcode in loadSize) {
+    if (args.length === 2) {
+      const dst = regNum(args[0]);
+      const m1 = mem(args[1]);
+      if (dst !== undefined && m1) {
+        return { opcode, variant: 'mem', dst, src: m1.base, offset: (m1.off ?? m1.offSym), size: loadSize[opcode] };
+      }
+    }
+    return null;
+  }
+
+  if (opcode in storeSize) {
+    if (args.length === 2) {
+      const m1 = mem(args[0]);
+      if (!m1) return null;
+      const srcReg = regNum(args[1]);
+      const imm = parseNum(args[1]) ?? args[1].trim();
+      const isReg = srcReg !== undefined && opcode.startsWith('stx');
+      return {
+        opcode,
+        variant: isReg ? 'mem_reg' : 'mem_imm',
+        dst: m1.base,
+        src: isReg ? srcReg : undefined,
+        imm: isReg ? undefined : imm,
+        offset: (m1.off ?? m1.offSym),
+        size: storeSize[opcode]
+      };
+    }
+    return null;
+  }
+
+  if (opcode === 'lddw' && args.length === 2) {
+    const dst = regNum(args[0]);
+    const imm = parseNum(args[1]) ?? args[1].trim();
+    if (dst !== undefined) return { opcode, variant: 'imm', dst, imm, size: 64 };
+    return null;
+  }
+
+  if ((opcode === 'neg32' || opcode === 'neg64') && args.length === 1) {
+    const dst = regNum(args[0]);
+    if (dst !== undefined) return { opcode, variant: 'unary', dst };
+    return null;
+  }
+
+  if ((/^mov(32|64)$/.test(opcode)) && args.length === 2) {
+    const dst = regNum(args[0]);
+    const src = regNum(args[1]);
+    const imm = parseNum(args[1]) ?? args[1].trim();
+    if (dst !== undefined) return { opcode, variant: src !== undefined ? 'reg' : 'imm', dst, src, imm };
+    return null;
+  }
+
+  if ((opcode === 'be' || opcode === 'le') && args.length === 2) {
+    const dst = regNum(args[0]);
+    const imm = parseNum(args[1]) ?? args[1].trim();
+    if (dst !== undefined) return { opcode, variant: 'imm', dst, imm };
+    return null;
+  }
+
+  if (opcode === 'call' || opcode === 'callx') {
+    if (args.length === 1) {
+      const immOrReg = regNum(args[0]);
+      const imm = parseNum(args[0]) ?? args[0].trim();
+      return { opcode, variant: immOrReg !== undefined ? 'reg' : 'imm', src: immOrReg, imm };
+    }
+    return null;
+  }
+  if (opcode === 'exit' || opcode === 'return') {
+    return { opcode, variant: 'none' };
+  }
+
+  const jops = ['ja','jeq','jgt','jge','jset','jne','jsgt','jsge','jlt','jle','jslt','jsle'];
+  if (jops.includes(opcode)) {
+    if (opcode === 'ja' && args.length === 1) {
+      const off = parseOffset(args[0]);
+      if (off !== undefined) return { opcode, variant: 'off', offset: off };
+      return null;
+    }
+    if (args.length === 3) {
+      const dst = regNum(args[0]);
+      const srcReg = regNum(args[1]);
+      const imm = parseNum(args[1]) ?? args[1].trim();
+      const off = parseOffset(args[2]);
+      if (dst !== undefined && off !== undefined) {
+        return { opcode, variant: srcReg !== undefined ? 'reg' : 'imm', dst, src: srcReg, imm: srcReg !== undefined ? undefined : imm, offset: off };
+      }
+    }
+    return null;
+  }
+
+  if (/^(add|sub|mul|div|sdiv|mod|smod|lsh|rsh|xor|or|and|arsh)(32|64)$/.test(opcode) && args.length === 2) {
+    const dst = regNum(args[0]);
+    const src = regNum(args[1]);
+    const imm = parseNum(args[1]) ?? args[1].trim();
+    if (dst !== undefined) return { opcode, variant: src !== undefined ? 'reg' : 'imm', dst, src, imm };
+    return null;
+  }
+
+  if (opcode === 'hor64' && args.length === 2) {
+    const dst = regNum(args[0]);
+    const imm = parseNum(args[1]) ?? args[1].trim();
+    if (dst !== undefined) return { opcode, variant: 'imm', dst, imm };
+    return null;
+  }
+
+  return null;
+}
+
+function describeInstruction(p: ParsedInstruction): { title: string; text: string } | null {
+  const jmap: Record<string,string> = {
+    jeq: '==', jne: '!=', jgt: '>', jge: '>=', jlt: '<', jle: '<=',
+    jsgt: '>(signed)', jsge: '>=(signed)', jslt: '<(signed)', jsle: '<=(signed)'
+  };
+  if (p.opcode === 'ja' && typeof p.offset === 'number') {
+    const dir = p.offset >= 0 ? 'forward' : 'back';
+    return { title: 'ja (jump)', text: `Jump ${dir} ${Math.abs(p.offset)} instructions` };
+  }
+  if (p.opcode in jmap && p.dst !== undefined && typeof p.offset === 'number') {
+    const cmp = jmap[p.opcode];
+    const rhs = p.variant === 'reg' ? `r${p.src}` : `${p.imm}`;
+    const dir = p.offset >= 0 ? 'forward' : 'back';
+    return { title: `${p.opcode} (conditional jump)`, text: `If r${p.dst} ${cmp} ${rhs}, jump ${dir} ${Math.abs(p.offset)} instructions` };
+  }
+  if (p.opcode === 'jset' && p.dst !== undefined && typeof p.offset === 'number') {
+    const rhs = p.variant === 'reg' ? `r${p.src}` : `${p.imm}`;
+    const dir = p.offset >= 0 ? 'forward' : 'back';
+    return { title: 'jset (bit test jump)', text: `If (r${p.dst} & ${rhs}) != 0, jump ${dir} ${Math.abs(p.offset)} instructions` };
+  }
+
+  const sizes: Record<number,string> = { 8:'u8', 16:'u16', 32:'u32', 64:'u64' };
+  if (/^ldx[bhwd]w?$|^ldxdw$/.test(p.opcode) && p.dst !== undefined && p.src !== undefined) {
+    const typ = sizes[p.size!];
+    const off = p.offset !== undefined ? ` + ${typeof p.offset === 'number' ? formatNum(p.offset) : p.offset}` : '';
+    return { title: `${p.opcode} (load)`, text: `r${p.dst} = [r${p.src}${off}] as ${typ}` };
+  }
+  if (/^st[bhwd]$/.test(p.opcode) && p.dst !== undefined) {
+    const typ = sizes[p.size!];
+    const off = p.offset !== undefined ? ` + ${typeof p.offset === 'number' ? formatNum(p.offset) : p.offset}` : '';
+    return { title: `${p.opcode} (store imm)`, text: `[r${p.dst}${off}] as ${typ} = ${p.imm}` };
+  }
+  if (/^stx[bhwd]$/.test(p.opcode) && p.dst !== undefined && p.src !== undefined) {
+    const typ = sizes[p.size!];
+    const off = p.offset !== undefined ? ` + ${typeof p.offset === 'number' ? formatNum(p.offset) : p.offset}` : '';
+    return { title: `${p.opcode} (store reg)`, text: `[r${p.dst}${off}] as ${typ} = r${p.src}` };
+  }
+  if (p.opcode === 'lddw' && p.dst !== undefined) {
+    return { title: 'lddw (load 64-bit imm)', text: `r${p.dst} = ${p.imm}` };
+  }
+
+  const sym: Record<string,string> = {
+    add: '+=', sub: '-=', mul: '*=', div: '/=', sdiv: '/=', mod: '%=', smod: '%=',
+    lsh: '<<=', rsh: '>>=', arsh: '>>= (arith)', xor: '^=', or: '|=', and: '&='
+  };
+  const alu = p.opcode.match(/^(add|sub|mul|div|sdiv|mod|smod|lsh|rsh|xor|or|and|arsh)(32|64)$/);
+  if (alu && p.dst !== undefined) {
+    const s = sym[alu[1]];
+    const rhs = p.variant === 'reg' ? `r${p.src}` : `${p.imm}`;
+    return { title: `${p.opcode} (ALU)`, text: `r${p.dst} ${s} ${rhs}` };
+  }
+  if ((p.opcode === 'mov32' || p.opcode === 'mov64') && p.dst !== undefined) {
+    const rhs = p.variant === 'reg' ? `r${p.src}` : `${p.imm}`;
+    return { title: `${p.opcode} (move)`, text: `r${p.dst} = ${rhs}` };
+  }
+  if ((p.opcode === 'neg32' || p.opcode === 'neg64') && p.dst !== undefined) {
+    return { title: `${p.opcode} (negate)`, text: `r${p.dst} = -r${p.dst}` };
+  }
+  if (p.opcode === 'hor64' && p.dst !== undefined) {
+    return { title: 'hor64 (hi-or)', text: `r${p.dst} |= (${p.imm}) << 32` };
+  }
+
+  if ((p.opcode === 'be' || p.opcode === 'le') && p.dst !== undefined) {
+    return { title: `${p.opcode} (byte swap)`, text: `r${p.dst} = ${p.opcode}(${p.imm})` };
+  }
+
+  if (p.opcode === 'call' || p.opcode === 'callx') {
+    const target = p.variant === 'reg' ? `r${p.src}` : `${p.imm}`;
+    return { title: `${p.opcode} (call)`, text: `Call ${target}` };
+  }
+  if (p.opcode === 'exit' || p.opcode === 'return') {
+    return { title: 'exit', text: 'Return r0' };
+  }
+
+  return null;
+}
+
+function formatFields(p: ParsedInstruction): string {
+  let opcode: string;
+  if (p.opcode.startsWith('j')) {
+    opcode = jumpVariant(p);
+  } else if (/^(add|sub|mul|div|sdiv|mod|smod|lsh|rsh|xor|or|and|arsh)/.test(p.opcode)) {
+    opcode = `${p.opcode}_${p.variant}`;
+  } else {
+    opcode = p.opcode;
+  }
+  const kv: string[] = [
+    `opcode=${opcode}`,
+    `dst=${p.dst ?? 'unused'}`,
+    `src=${p.src ?? 'unused'}`,
+    `offset=${p.offset ?? 'unused'}`,
+    `imm=${p.imm ?? 'unused'}`
+  ];
+  return kv.join(', ');
+}
+
+function jumpVariant(p: ParsedInstruction): string {
+  const base = p.opcode === 'ja' ? 'jump' : `jump_${({
+    jeq: 'eq', jne: 'ne', jgt: 'gt', jge: 'ge', jlt: 'lt', jle: 'le',
+    jsgt: 'sgt', jsge: 'sge', jslt: 'slt', jsle: 'sle', jset: 'set'
+  } as any)[p.opcode]}`;
+  if (p.opcode === 'ja') return base;
+  return `${base}_${p.variant === 'reg' ? 'reg' : 'imm'}`;
+}
+
+function formatNum(n: number): string {
+  return (n < 0 ? '-' : '') + '0x' + Math.abs(n).toString(16);
 }
 
 // Listen for document changes

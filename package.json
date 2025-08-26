@@ -42,7 +42,17 @@
         "scopeName": "source.sbpf-asm",
         "path": "./syntaxes/sbpf-asm.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "sBPF Assembly",
+      "properties": {
+        "sbpf-asm.showEolInfo": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show end-of-line instruction summary and meta for the current cursor line."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
