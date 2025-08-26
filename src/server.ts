@@ -33,6 +33,20 @@ const VALIDATE_BUILD_DEBOUNCE_MS = 100;
 let validateBuildTimer: NodeJS.Timeout | undefined;
 let workspaceRoot: string | null = null;
 
+enum SymbolType {
+  EQU = "equ",
+  LABEL = "label"
+}
+interface Symbol {
+  name: string;
+  value: string;
+  type: SymbolType;
+  line: number;
+  description?: string;
+}
+
+let documentSymbols = new Map<string, Symbol[]>();
+
 console.log('sBPF Assembly Language Server is starting...');
 
 const NUM_REGISTERS = 11;
@@ -280,6 +294,7 @@ connection.onInitialize((params: InitializeParams) => {
 
 documents.onDidOpen((e) => {
   console.log(`Document opened: ${e.document.uri}`);
+  parseDocumentSymbols(e.document);
 });
 
 connection.onCompletion(
@@ -304,6 +319,20 @@ connection.onCompletion(
       });
     });
 
+    const document = documents.get(textDocumentPosition.textDocument.uri);
+    if (document) {
+      const symbols = documentSymbols.get(document.uri) || [];
+      symbols.forEach((symbol) => {
+        completions.push({
+          label: symbol.name,
+          kind: symbol.type === SymbolType.EQU ? CompletionItemKind.Constant : CompletionItemKind.Reference,
+          data: symbol.name,
+          detail: symbol.type === SymbolType.EQU ? `Constant: ${symbol.value}` : `Label: ${symbol.value}`,
+          documentation: symbol.description
+        });
+      });
+    }
+
     return completions;
   }
 );
@@ -321,6 +350,17 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
     item.detail = syscall.label;
     item.documentation = syscall.description;
     return item;
+  }
+
+  if (item.data && typeof item.data === 'string') {
+    for (const [uri, symbols] of documentSymbols.entries()) {
+      const symbol = symbols.find(s => s.name === item.data);
+      if (symbol) {
+        item.detail = symbol.type === SymbolType.EQU ? `Constant: ${symbol.value}` : `Jump label`;
+        item.documentation = symbol.description;
+        return item;
+      }
+    }
   }
 
   return item;
@@ -353,8 +393,60 @@ connection.onHover((params) => {
     };
   }
 
+  const symbols = documentSymbols.get(document.uri);
+  if (symbols) {
+    const symbol = symbols.find((s) => s.name === word);
+    if (symbol) {
+      return {
+        contents: {
+          kind: 'markdown',
+          value: `**${symbol.name}**\n\n${symbol.description}\n\nValue: ${symbol.value}`
+        }
+      };
+    }
+  }
+
   return null;
 });
+
+function parseDocumentSymbols(document: TextDocument): void {
+  const text = document.getText();
+  const lines = text.split('\n');
+  const symbols: Symbol[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Parse .equ directives.
+    const equMatch = line.match(/^\.equ\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*,\s*(.+)$/);
+    if (equMatch) {
+      const name = equMatch[1];
+      const value = equMatch[2].trim();
+      symbols.push({
+        name,
+        value,
+        type: SymbolType.EQU,
+        line: i,
+        description: `Constant definition`
+      });
+    }
+    
+    // Parse jump labels (i.e. identifiers followed by colon).
+    const labelMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(?:$|#.*$)/);
+    if (labelMatch) {
+      const name = labelMatch[1];
+      symbols.push({
+        name,
+        value: `jump target at line ${i + 1}`,
+        type: SymbolType.LABEL,
+        line: i,
+        description: `Jump label`
+      });
+    }
+  }
+
+  documentSymbols.set(document.uri, symbols);
+}
 
 function getWordRangeAtPosition(
   document: TextDocument,
@@ -381,6 +473,7 @@ function getWordRangeAtPosition(
 
 // Listen for document changes
 documents.onDidChangeContent((change) => {
+  parseDocumentSymbols(change.document);
   validateTextDocument(change.document);
   validateBuild(change.document);
 });
@@ -431,6 +524,7 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
 // Listen for document save
 documents.onDidSave((event) => {
+  parseDocumentSymbols(event.document);
   validateBuild(event.document);
 });
 
