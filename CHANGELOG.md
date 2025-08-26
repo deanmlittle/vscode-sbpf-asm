@@ -4,6 +4,9 @@ All notable changes to the "sbpf-assembly" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [0.0.5] - 2025-08-26
 
-- Initial release
+### Changed
+- Removed diagnostic errors for missing entrypoint labels and `.globl entrypoint` declarations
+- Merged autocomplete for call/jump targets
+- Merged tooltip option
