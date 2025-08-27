@@ -854,26 +854,42 @@ async function validateBuild(document: TextDocument): Promise<void> {
         cwd: workspaceRoot,
       }).catch((error) => error);
       const lines = stderr.split("\n");
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i];
+        
+        // Match error message.
+        const errorMatch = line.match(/^error: (.+)$/);
+        if (errorMatch) {
+          let message = errorMatch[1];
+          
+          // Match location.
+          const locationMatch = lines[i + 1]?.match(/┌─ (.+):(\d+):(\d+)$/);
+          if (locationMatch) {
+            const [_, file, lineStr, colStr] = locationMatch;
+            const lineNum = parseInt(lineStr) - 1;
+            const col = parseInt(colStr) - 1;
 
-      for (const line of lines) {
-        // Extract message and position
-        const match = line.match(/^(.+):(\d+):(\d+): (.+?: .+)$/);
-        if (match) {
-          const [_, file, lineStr, colStr, message] = match;
-          const line = parseInt(lineStr) - 1;
-          const col = parseInt(colStr) - 1;
+            // Match additional error details.
+            for (let j = i + 2; j < lines.length; j++) {
+              const detailMatch = lines[j]?.match(/\^+\s*(.+)$/);
+              if (detailMatch) {
+                message += '\n\n' + detailMatch[1];
+                break;
+              }
+            }
 
-          if (document.uri.endsWith(file)) {
-            const position = Position.create(line, col);
-            const range = getWordRangeAtPosition(document, position);
+            if (document.uri.endsWith(file)) {
+              const position = Position.create(lineNum, col);
+              const range = getWordRangeAtPosition(document, position);
 
-            diagnostics.push({
-              severity: DiagnosticSeverity.Error,
-              range,
-              message,
-              source: "solana-ebpf",
-              code: "build-error",
-            });
+              diagnostics.push({
+                severity: DiagnosticSeverity.Error,
+                range,
+                message,
+                source: "solana-ebpf",
+                code: "build-error",
+              });
+            }
           }
         }
       }
