@@ -49,14 +49,7 @@
       "keywords": {
         "patterns": [
           {
-            "match": "\\.(globl)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-            "captures": {
-              "1": { "name": "storage.type.class.sbpf-asm" },
-              "2": { "name": "entity.name.function.sbpf-asm" }
-            }
-          },
-          {
-            "match": "\\.(?:equ|section|rodata|ascii|asciz|byte)",
+            "match": "\\.(?:equ|section|rodata|ascii|asciz|byte|globl)",
             "name": "storage.type.class.sbpf-asm"
           }
         ]
@@ -64,10 +57,9 @@
       "calls": {
         "patterns": [
           {
-            "match": "\\b(call)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "match": "(?<=\\bcall\\s|\\.globl\\s)([a-zA-Z_][a-zA-Z0-9_]*)",
             "captures": {
-              "1": { "name": "keyword.opcode.sbpf-asm" },
-              "2": { "name": "entity.name.function.sbpf-asm" }
+              "1": { "name": "entity.name.function.sbpf-asm" }
             }
           }
         ]
