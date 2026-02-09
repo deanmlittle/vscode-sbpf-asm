@@ -6,6 +6,7 @@ import {
   ServerOptions,
   TransportKind
 } from 'vscode-languageclient/node';
+import { activateDebug } from './debugger';
 /* eslint-disable curly */
 
 let client: LanguageClient;
@@ -125,6 +126,9 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
   );
+
+  // Activate the debugger
+  activateDebug(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {

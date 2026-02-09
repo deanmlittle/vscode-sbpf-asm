@@ -5,14 +5,20 @@
   "version": "0.0.4",
   "icon": "icons/logo.png",
   "publisher": "deanmlittle",
-  "repository": { "url": "https://github.com/deanmlittle/vscode-sbpf-asm.git"},
+  "repository": {
+    "url": "https://github.com/deanmlittle/vscode-sbpf-asm.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Debuggers"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onDebugResolve:sbpf"
+  ],
   "contributes": {
     "languages": [
       {
@@ -50,9 +56,77 @@
           "type": "boolean",
           "default": true,
           "description": "Show end-of-line instruction summary and meta for the current cursor line."
+        },
+        "sbpf-asm.sbpfPath": {
+          "type": "string",
+          "default": "sbpf",
+          "description": "Path to the sbpf CLI."
         }
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "sbpf-asm"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "sbpf",
+        "languages": [
+          "sbpf-asm"
+        ],
+        "label": "sBPF Debug",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to an assembly file (.s) or ELF file (.so).",
+                "default": "${workspaceFolder}/src/${workspaceFolderBasename}/${workspaceFolderBasename}.s"
+              },
+              "input": {
+                "type": "object",
+                "description": "Input accounts and instruction for the program.",
+                "default": {}
+              },
+              "computeUnitLimit": {
+                "type": "number",
+                "description": "Compute unit limit.",
+                "default": 1400000
+              },
+              "stackSize": {
+                "type": "number",
+                "description": "Stack size in bytes.",
+                "default": 4096
+              },
+              "heapSize": {
+                "type": "number",
+                "description": "Heap size in bytes.",
+                "default": 32768
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch.",
+                "default": true
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "sbpf",
+            "request": "launch",
+            "name": "Debug Assembly",
+            "program": "${workspaceFolder}/src/${workspaceFolderBasename}/${workspaceFolderBasename}.s",
+            "input": {},
+            "stopOnEntry": true
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -68,6 +142,8 @@
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0",
     "@typescript-eslint/parser": "^8.3.0",
+    "@vscode/debugadapter": "^1.68.0",
+    "@vscode/debugadapter-testsupport": "^1.68.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.9.1",
