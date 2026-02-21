@@ -97,10 +97,10 @@
                 "description": "Compute unit limit.",
                 "default": 1400000
               },
-              "stackSize": {
+              "maxCallDepth": {
                 "type": "number",
-                "description": "Stack size in bytes.",
-                "default": 4096
+                "description": "Maximum call depth.",
+                "default": 64
               },
               "heapSize": {
                 "type": "number",

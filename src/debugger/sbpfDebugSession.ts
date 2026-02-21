@@ -24,8 +24,8 @@ interface ILaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
   input?: object;
   /** Compute unit limit */
   computeUnitLimit?: number;
-  /** Stack size in bytes */
-  stackSize?: number;
+  /** Maximum call depth */
+  maxCallDepth?: number;
   /** Heap size in bytes */
   heapSize?: number;
   /** Automatically stop target after launch */
@@ -212,7 +212,7 @@ export class SbpfDebugSession extends LoggingDebugSession {
         program: args.program,
         input: args.input,
         computeUnitLimit: args.computeUnitLimit,
-        stackSize: args.stackSize,
+        maxCallDepth: args.maxCallDepth,
         heapSize: args.heapSize,
         stopOnEntry: args.stopOnEntry,
       };
@@ -303,7 +303,7 @@ export class SbpfDebugSession extends LoggingDebugSession {
     args: DebugProtocol.NextArguments,
   ): Promise<void> {
     try {
-      await this._runtime.step();
+      await this._runtime.next();
       this.sendResponse(response);
       this.sendEvent(new StoppedEvent("step", SbpfDebugSession.threadID));
     } catch (error) {

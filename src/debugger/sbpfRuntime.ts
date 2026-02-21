@@ -50,7 +50,7 @@ export interface ISbpfLaunchConfig {
   program: string;
   input?: object;
   computeUnitLimit?: number;
-  stackSize?: number;
+  maxCallDepth?: number;
   heapSize?: number;
   stopOnEntry?: boolean;
 }
@@ -69,7 +69,7 @@ export interface ISbpfResponse {
 }
 
 export interface ISbpfStepEvent {
-  type: "step" | "breakpoint" | "exit" | "error";
+  type: "next" | "breakpoint" | "exit" | "error";
   pc?: number;
   line?: number | null;
   code?: number;
@@ -128,9 +128,9 @@ export class SbpfRuntime extends EventEmitter {
         args.push("--compute-unit-limit", config.computeUnitLimit.toString());
       }
 
-      // Add stack size
-      if (config.stackSize !== undefined) {
-        args.push("--stack-size", config.stackSize.toString());
+      // Add max call depth
+      if (config.maxCallDepth !== undefined) {
+        args.push("--max-call-depth", config.maxCallDepth.toString());
       }
 
       // Add heap size
@@ -303,8 +303,8 @@ export class SbpfRuntime extends EventEmitter {
     return resp.data as ISbpfStepEvent;
   }
 
-  public async step(): Promise<ISbpfStepEvent> {
-    const resp = await this.sendCommand({ command: "step" });
+  public async next(): Promise<ISbpfStepEvent> {
+    const resp = await this.sendCommand({ command: "next" });
     return resp.data as ISbpfStepEvent;
   }
 
