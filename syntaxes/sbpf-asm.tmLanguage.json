@@ -40,13 +40,25 @@
           {
             "match": "\\.(?:extern|section|globl|global|rodata|ascii|asciz)",
             "name": "storage.type.class.sbpf-asm"
+          },
+          {
+            "match": "\\b(?:u8|u16|u32|u64)\\b",
+            "name": "storage.type.size.sbpf-asm"
+          },
+          {
+            "match": "\\bif\\b",
+            "name": "keyword.control.sbpf-asm"
+          },
+          {
+            "match": "\\bll\\b",
+            "name": "keyword.other.sbpf-asm"
           }
         ]
       },
       "opcodes": {
         "patterns": [
           {
-            "match": "\\b(?:add|and|arsh|div|lmul|lsh|mod|mov|mul|neg|or|rsh|sdiv|shmul|srem|sub|udiv|uhmul|urem|xor)(32|64)\\b|\\b(?:be|call|exit|hor64|j(?:a|eq|ge|gt|le|lt|ne)|js(?:et|ge|gt|le|lt)|ld(?:b|h|w|dw)|ldx(?:b|h|w|dw)|le|st(?:b|h|w|dw)|stx(?:b|h|w|dw))\\b",
+            "match": "\\b(?:add|and|arsh|div|lmul|lsh|mod|mov|mul|neg|or|rsh|sdiv|shmul|srem|sub|udiv|uhmul|urem|xor)(32|64)\\b|\\b(?:be(?:16|32|64)?|call(?:x)?|exit|goto|hor64|j(?:a|eq|ge|gt|le|lt|ne)|js(?:et|ge|gt|le|lt)|ld(?:b|h|w|dw)|ldx(?:b|h|w|dw)|le(?:16|32|64)?|st(?:b|h|w|dw)|stx(?:b|h|w|dw))\\b",
             "name": "keyword.opcode.sbpf-asm"
           }
         ]
@@ -54,7 +66,7 @@
       "registers": {
         "patterns": [
           {
-            "match": "\\b[r][0-9]{1,2}\\b",
+            "match": "\\b[rw][0-9]{1,2}\\b",
             "name": "variable.register.sbpf-asm"
           }
         ]
