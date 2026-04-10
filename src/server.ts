@@ -16,7 +16,10 @@ import {
   CodeAction,
   Diagnostic,
   DiagnosticSeverity,
-  InsertTextFormat
+  InsertTextFormat,
+  Definition,
+  Location,
+  ReferenceParams
 } from 'vscode-languageserver/node';
 /* eslint-disable curly */
 
@@ -288,7 +291,9 @@ connection.onInitialize((params: InitializeParams) => {
         resolveProvider: true
       },
       hoverProvider: true,
-      codeActionProvider: true
+      codeActionProvider: true,
+      definitionProvider: true,
+      referencesProvider: true
     }
   };
 });
@@ -413,6 +418,94 @@ connection.onHover((params) => {
   }
 
   return null;
+});
+
+connection.onDefinition((params: TextDocumentPositionParams): Definition | null => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) { return null; }
+
+  const position = params.position;
+  const wordRange = getWordRangeAtPosition(document, position);
+  const word = document.getText(wordRange);
+  if (!word) {
+    return null;
+  }
+
+  const symbols = documentSymbols.get(document.uri);
+  if (symbols) {
+    const symbol = symbols.find((s) => s.name === word);
+    
+    if (symbol) {
+      // Get the line where the symbol is defined.
+      const definitionLineText = document.getText({
+        start: { line: symbol.line, character: 0 },
+        end: { line: symbol.line, character: Number.MAX_SAFE_INTEGER }
+      });
+      
+      let startChar = 0;
+      let endChar = symbol.name.length;
+      
+      if (symbol.type === SymbolType.LABEL) {
+        const labelMatch = definitionLineText.match(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):/);
+        if (labelMatch) {
+          startChar = labelMatch[1].length;
+          endChar = startChar + labelMatch[2].length;
+        }
+      } else if (symbol.type === SymbolType.EQU) {
+        const equMatch = definitionLineText.match(/^(\s*\.equ\s+)([a-zA-Z_][a-zA-Z0-9_]*)/);
+        if (equMatch) {
+          startChar = equMatch[1].length;
+          endChar = startChar + equMatch[2].length;
+        }
+      }
+
+      const location: Location = {
+        uri: document.uri,
+        range: {
+          start: { line: symbol.line, character: startChar },
+          end: { line: symbol.line, character: endChar }
+        }
+      };
+      return location;
+    }
+  }
+
+  return null;
+});
+
+connection.onReferences((params: ReferenceParams): Location[] => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) { return []; }
+
+  const position = params.position;
+  const wordRange = getWordRangeAtPosition(document, position);
+  const word = document.getText(wordRange);
+  if (!word) {
+    return [];
+  }
+
+  const references: Location[] = [];
+  const text = document.getText();
+  const lines = text.split('\n');
+
+  // Search through all lines to find references to the symbol.
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const regex = new RegExp(`\\b${word}\\b`, 'g');
+    
+    let match;
+    while ((match = regex.exec(line)) !== null) {
+      references.push({
+        uri: document.uri,
+        range: {
+          start: { line: lineIndex, character: match.index },
+          end: { line: lineIndex, character: match.index + word.length }
+        }
+      });
+    }
+  }
+
+  return references;
 });
 
 function parseDocumentSymbols(document: TextDocument): void {
