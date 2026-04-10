@@ -865,38 +865,35 @@ async function validateBuild(document: TextDocument): Promise<void> {
         const line = lines[i];
         
         // Match error message.
-        const errorMatch = line.match(/^error: (.+)$/);
+        const errorMatch = line.match(/^error:\s*(.+?)\s+-->\s+(\d+):(\d+)/);
         if (errorMatch) {
           let message = errorMatch[1];
-          
-          // Match location.
-          const locationMatch = lines[i + 1]?.match(/┌─ (.+):(\d+):(\d+)$/);
-          if (locationMatch) {
-            const [_, file, lineStr, colStr] = locationMatch;
-            const lineNum = parseInt(lineStr) - 1;
-            const col = parseInt(colStr) - 1;
+          const lineNum = parseInt(errorMatch[2]) - 1;
+          const col = parseInt(errorMatch[3]) - 1;
 
-            // Match additional error details.
-            for (let j = i + 2; j < lines.length; j++) {
-              const detailMatch = lines[j]?.match(/\^+\s*(.+)$/);
-              if (detailMatch) {
-                message += '\n\n' + detailMatch[1];
-                break;
-              }
+          let filePath: string | null = null;
+          for (let j = i + 1; j < lines.length; j++) {
+            const detailMatch = lines[j]?.match(/^\s*=\s+(.+)$/);
+            if (detailMatch) {
+              message = message.replace(/:?\s*$/, '') + ': ' + detailMatch[1];
             }
-
-            if (document.uri.endsWith(file)) {
-              const position = Position.create(lineNum, col);
-              const range = getWordRangeAtPosition(document, position);
-
-              diagnostics.push({
-                severity: DiagnosticSeverity.Error,
-                range,
-                message,
-                source: "solana-ebpf",
-                code: "build-error",
-              });
+            const fileMatch = lines[j]?.match(/┌─\s+(.+?):\d+:\d+$/);
+            if (fileMatch) {
+              filePath = fileMatch[1];
+              break;
             }
+          }
+
+          if (filePath && document.uri.endsWith(filePath)) {
+            const position = Position.create(lineNum, col);
+            const range = getWordRangeAtPosition(document, position);
+            diagnostics.push({
+              severity: DiagnosticSeverity.Error,
+              range,
+              message,
+              source: "solana-ebpf",
+              code: "build-error",
+            });
           }
         }
       }
