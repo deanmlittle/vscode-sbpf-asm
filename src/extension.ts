@@ -40,13 +40,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   client.start();
 
-  // Highlight the current line and append an end-of-line explanation for sbpf-asm documents
-  const activeLineDecoration = vscode.window.createTextEditorDecorationType({
-    isWholeLine: true,
-    backgroundColor: new vscode.ThemeColor('editor.hoverHighlightBackground'),
-  });
-  context.subscriptions.push(activeLineDecoration);
-
+  // Append an end-of-line explanation for sbpf-asm documents.
   const eolInfoDecoration = vscode.window.createTextEditorDecorationType({
     after: {
       color: new vscode.ThemeColor('editorGhostText.foreground'),
@@ -71,10 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
     const cfg = vscode.workspace.getConfiguration('sbpf-asm');
     const showEol = cfg.get<boolean>('showEolInfo', true);
 
-    // Highlight current line
     const sel = editor.selection.active;
-    const activeRange = new vscode.Range(sel.line, 0, sel.line, 0);
-    editor.setDecorations(activeLineDecoration, [activeRange]);
 
     // End-of-line explanation for current line
     const lineText = editor.document.lineAt(sel.line).text;
