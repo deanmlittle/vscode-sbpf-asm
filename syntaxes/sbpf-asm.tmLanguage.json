@@ -48,7 +48,7 @@
       "directives": {
         "patterns": [
           {
-            "match": "\\.(?:extern|section|globl|global|rodata|equ|include|macro|endm)\\b",
+            "match": "\\.(?:extern|section|globl|global|rodata|equ|include|macro|endm|rept|endr|irp)\\b",
             "name": "keyword.control.directive.sbpf-asm"
           },
           {
