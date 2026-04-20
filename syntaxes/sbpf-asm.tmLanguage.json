@@ -1,15 +1,14 @@
 {
     "scopeName": "source.sbpf-asm",
     "patterns": [
-      { "include": "#calls" },
       { "include": "#comments" },
+      { "include": "#directives" },
       { "include": "#constants" },
       { "include": "#keywords" },
       { "include": "#opcodes" },
       { "include": "#registers" },
       { "include": "#numbers" },
-      { "include": "#strings" },
-      { "include": "#labels" }
+      { "include": "#strings" }
     ],
     "repository": {
       "comments": {
@@ -46,12 +45,20 @@
           }
         ]
       },
-      "keywords": {
+      "directives": {
         "patterns": [
           {
-            "match": "\\.(?:extern|section|globl|global|rodata|ascii|asciz|byte|equ)",
-            "name": "storage.type.class.sbpf-asm"
+            "match": "\\.(?:extern|section|globl|global|rodata|equ|include|macro|endm)\\b",
+            "name": "keyword.control.directive.sbpf-asm"
           },
+          {
+            "match": "\\.(?:ascii|asciz|byte|half|short|word|int|long|quad)\\b",
+            "name": "storage.type.directive.sbpf-asm"
+          }
+        ]
+      },
+      "keywords": {
+        "patterns": [
           {
             "match": "\\b(?:u8|u16|u32|u64)\\b",
             "name": "storage.type.size.sbpf-asm"
@@ -63,16 +70,6 @@
           {
             "match": "\\bll\\b",
             "name": "keyword.other.sbpf-asm"
-          }
-        ]
-      },
-      "calls": {
-        "patterns": [
-          {
-            "match": "(?<=\\bcall\\s|\\.globl\\s|\\.global\\s)([a-zA-Z_][a-zA-Z0-9_]*)",
-            "captures": {
-              "1": { "name": "entity.name.function.sbpf-asm" }
-            }
           }
         ]
       },
@@ -130,16 +127,6 @@
                 "name": "constant.character.escape.sbpf-asm"
               }
             ]
-          }
-        ]
-      },
-      "labels": {
-        "patterns": [
-          {
-            "match": "^([a-zA-Z_][a-zA-Z0-9_]*):",
-            "captures": {
-              "1": { "name": "entity.name.function.sbpf-asm" }
-            }
           }
         ]
       }

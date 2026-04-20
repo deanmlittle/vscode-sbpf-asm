@@ -2,7 +2,7 @@
   "name": "vscode-sbpf-asm",
   "displayName": "sbpf-asm",
   "description": "sBPF Assembly support for VSCode",
-  "version": "0.0.4",
+  "version": "0.0.7",
   "icon": "icons/logo.png",
   "publisher": "deanmlittle",
   "repository": {
@@ -142,7 +142,6 @@
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.3.0",
     "@typescript-eslint/parser": "^8.3.0",
-    "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugadapter-testsupport": "^1.68.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
@@ -150,6 +149,7 @@
     "typescript": "^5.5.4"
   },
   "dependencies": {
+    "@vscode/debugadapter": "^1.68.0",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"

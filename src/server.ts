@@ -19,6 +19,7 @@ import {
   InsertTextFormat,
   Definition,
   Location,
+  LocationLink,
   ReferenceParams
 } from 'vscode-languageserver/node';
 /* eslint-disable curly */
@@ -27,6 +28,9 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { promisify } from "util";
 import { exec } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import { pathToFileURL, fileURLToPath } from "url";
 
 const connection: ProposedFeatures.Connection = createConnection(ProposedFeatures.all);
 
@@ -36,16 +40,21 @@ const execPromise = promisify(exec);
 const VALIDATE_BUILD_DEBOUNCE_MS = 100;
 let validateBuildTimer: NodeJS.Timeout | undefined;
 let workspaceRoot: string | null = null;
+let lastBuildDiagnosticUris: Set<string> = new Set();
 
 enum SymbolType {
   EQU = "equ",
-  LABEL = "label"
+  LABEL = "label",
+  MACRO = "macro"
 }
 interface Symbol {
   name: string;
   value: string;
   type: SymbolType;
   line: number;
+  endLine?: number;
+  args?: string[];
+  body?: string;
   description?: string;
 }
 
@@ -288,7 +297,8 @@ connection.onInitialize((params: InitializeParams) => {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: {
-        resolveProvider: true
+        resolveProvider: true,
+        triggerCharacters: ['"', '/', '.']
       },
       hoverProvider: true,
       codeActionProvider: true,
@@ -303,8 +313,77 @@ documents.onDidOpen((e) => {
   parseDocumentSymbols(e.document);
 });
 
+type DirectiveInfo = {
+  label: string;
+  insertText: string;
+  detail: string;
+  example: string;
+};
+
+const DIRECTIVES: DirectiveInfo[] = [
+  { label: ".globl",   insertText: "globl ${1:entrypoint}",          detail: "Declare a global symbol",      example: ".globl entrypoint" },
+  { label: ".global",  insertText: "global ${1:entrypoint}",         detail: "Declare a global symbol",      example: ".global entrypoint" },
+  { label: ".extern",  insertText: "extern ${1:symbol}",             detail: "Declare an external symbol",   example: ".extern sol_log_" },
+  { label: ".section", insertText: "section ${1:.text}",             detail: "Begin a new section",          example: ".section .text" },
+  { label: ".rodata",  insertText: "rodata",                          detail: "Read-only data section",       example: ".rodata\n    message: .ascii \"hi\"" },
+  { label: ".include", insertText: "include \"${1:path}\"",          detail: "Include another file",         example: ".include \"syscalls/sol_log.s\"" },
+  { label: ".macro",   insertText: "macro ${1:NAME} ${2:arg}\n\t$0\n.endm", detail: "Define a macro",         example: ".macro SOL_LOG string\n    lddw r1, \\string\n    call sol_log_\n.endm" },
+  { label: ".endm",    insertText: "endm",                            detail: "End macro definition",         example: ".endm" },
+  { label: ".equ",     insertText: "equ ${1:NAME}, ${2:value}",      detail: "Define a constant",            example: ".equ HEAP_START, 0x300000000" },
+  { label: ".byte",    insertText: "byte ${1:0x00}",                  detail: "Emit one byte",                example: ".byte 0x42" },
+  { label: ".ascii",   insertText: "ascii \"${1:text}\"",            detail: "Emit a string (no terminator)", example: ".ascii \"Hello\"" },
+  { label: ".asciz",   insertText: "asciz \"${1:text}\"",            detail: "Emit a NUL-terminated string", example: ".asciz \"Hello\"  # appends \\0" },
+];
+
+const DATA_SUBDIRECTIVES: DirectiveInfo[] = [
+  { label: ".byte",    insertText: "byte ${1:0x00}",        detail: "8-bit value",            example: ".byte 0xFF" },
+  { label: ".half",    insertText: "half ${1:0}",            detail: "16-bit value",           example: ".half 0x1234" },
+  { label: ".short",   insertText: "short ${1:0}",           detail: "16-bit value",           example: ".short 0x1234" },
+  { label: ".word",    insertText: "word ${1:0}",            detail: "32-bit value",           example: ".word 0xDEADBEEF" },
+  { label: ".int",     insertText: "int ${1:0}",             detail: "32-bit value",           example: ".int 100" },
+  { label: ".long",    insertText: "long ${1:0}",            detail: "32-bit value",           example: ".long 100" },
+  { label: ".quad",    insertText: "quad ${1:0}",            detail: "64-bit value",           example: ".quad 0x1122334455667788" },
+  { label: ".ascii",   insertText: "ascii \"${1:text}\"",   detail: "String, no terminator",  example: "message: .ascii \"Hello\"" },
+  { label: ".asciz",   insertText: "asciz \"${1:text}\"",   detail: "NUL-terminated string",  example: "message: .asciz \"Hello\"" },
+];
+
+function findDirective(label: string): DirectiveInfo | undefined {
+  return DIRECTIVES.find((d) => d.label === label)
+    ?? DATA_SUBDIRECTIVES.find((d) => d.label === label);
+}
+
+function isInRodataSection(document: TextDocument, lineIdx: number): boolean {
+  const text = document.getText();
+  const lines = text.split('\n');
+  for (let i = Math.min(lineIdx, lines.length - 1); i >= 0; i--) {
+    const m = lines[i].match(/^\s*\.(rodata|text|data|bss|section)\b\s*(\S*)/);
+    if (m) {
+      if (m[1] === 'rodata') return true;
+      if (m[1] === 'section') return /^\.?rodata\b/.test(m[2] || '');
+      return false;
+    }
+  }
+  return false;
+}
+
 connection.onCompletion(
   (textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+    const document = documents.get(textDocumentPosition.textDocument.uri);
+    const pos = textDocumentPosition.position;
+
+    // Path completion inside .include "..."
+    if (document) {
+      const lineText = document.getText({
+        start: { line: pos.line, character: 0 },
+        end: { line: pos.line, character: Number.MAX_SAFE_INTEGER }
+      });
+      const before = lineText.slice(0, pos.character);
+      const includeMatch = before.match(/^\s*\.include\s+"([^"]*)$/);
+      if (includeMatch) {
+        return completeIncludePath(document.uri, includeMatch[1]);
+      }
+    }
+
     const completions: CompletionItem[] = [];
 
     opcodes.forEach((opcode) => {
@@ -325,10 +404,74 @@ connection.onCompletion(
       });
     });
 
-    const document = documents.get(textDocumentPosition.textDocument.uri);
+    // Directives — strip the leading `.` from insertText if the user already typed one
+    const lineBefore = document
+      ? document.getText({
+          start: { line: pos.line, character: 0 },
+          end: { line: pos.line, character: pos.character }
+        })
+      : "";
+    const userTypedDot = /\.[A-Za-z_]*$/.test(lineBefore);
+    const directiveDoc = (d: DirectiveInfo) => ({
+      kind: 'markdown' as const,
+      value: `${d.detail}\n\n\`\`\`sbpf-asm\n${d.example}\n\`\`\``
+    });
+
+    DIRECTIVES.forEach((d) => {
+      completions.push({
+        label: d.label,
+        kind: CompletionItemKind.Keyword,
+        insertText: userTypedDot ? d.insertText : "." + d.insertText,
+        insertTextFormat: InsertTextFormat.Snippet,
+        detail: d.detail,
+        documentation: directiveDoc(d),
+        data: d.label
+      });
+    });
+
+    // Data subdirectives (only inside .rodata)
+    if (document && isInRodataSection(document, pos.line)) {
+      DATA_SUBDIRECTIVES.forEach((d) => {
+        completions.push({
+          label: d.label,
+          kind: CompletionItemKind.Keyword,
+          insertText: userTypedDot ? d.insertText : "." + d.insertText,
+          insertTextFormat: InsertTextFormat.Snippet,
+          detail: d.detail,
+          documentation: directiveDoc(d),
+          data: `rodata:${d.label}`
+        });
+      });
+    }
+
+    // Macros from all parsed files (current + includes), with snippet args
+    const seenMacros = new Set<string>();
+    for (const [, syms] of documentSymbols) {
+      for (const sym of syms) {
+        if (sym.type !== SymbolType.MACRO) continue;
+        if (seenMacros.has(sym.name)) continue;
+        seenMacros.add(sym.name);
+        const args = sym.args ?? [];
+        const argSnippet = args
+          .map((a, i) => `\${${i + 1}:${a}}`)
+          .join(", ");
+        const insertText = args.length > 0 ? `${sym.name} ${argSnippet}` : sym.name;
+        const sigDisplay = args.length > 0 ? `${sym.name} ${args.join(", ")}` : sym.name;
+        completions.push({
+          label: sym.name,
+          kind: CompletionItemKind.Function,
+          insertText,
+          insertTextFormat: InsertTextFormat.Snippet,
+          detail: `macro ${sigDisplay}`,
+          data: `macro:${sym.name}`
+        });
+      }
+    }
+
     if (document) {
       const symbols = documentSymbols.get(document.uri) || [];
       symbols.forEach((symbol) => {
+        if (symbol.type === SymbolType.MACRO) return; // handled above
         completions.push({
           label: symbol.name,
           kind: symbol.type === SymbolType.EQU ? CompletionItemKind.Constant : CompletionItemKind.Reference,
@@ -381,6 +524,26 @@ connection.onHover((params) => {
   const word = document.getText(wordRange);
   let header: string | null = null;
 
+  // Directive hover: include the leading '.' if the cursor is on/adjacent to one
+  const startChar = wordRange.start.character;
+  const prevChar = startChar > 0
+    ? document.getText({
+        start: { line: wordRange.start.line, character: startChar - 1 },
+        end: { line: wordRange.start.line, character: startChar }
+      })
+    : "";
+  if (prevChar === ".") {
+    const directive = findDirective("." + word);
+    if (directive) {
+      return {
+        contents: {
+          kind: 'markdown',
+          value: `**${directive.label}**\n\n${directive.detail}\n\n\`\`\`sbpf-asm\n${directive.example}\n\`\`\``
+        }
+      };
+    }
+  }
+
   const opcode = opcodes.find((o) => o.code === word);
   if (opcode) header = `**${opcode.label}**\n\n${opcode.description}`;
 
@@ -404,74 +567,141 @@ connection.onHover((params) => {
     return { contents: { kind: 'markdown', value: parts.join('\n\n') } } as Hover;
   }
 
-  const symbols = documentSymbols.get(document.uri);
-  if (symbols) {
-    const symbol = symbols.find((s) => s.name === word);
-    if (symbol) {
+  const symbol = findSymbol(document.uri, word);
+  if (symbol) {
+    if (symbol.type === SymbolType.MACRO) {
+      const sig = symbol.args && symbol.args.length > 0
+        ? `.macro ${symbol.name} ${symbol.args.join(", ")}`
+        : `.macro ${symbol.name}`;
+      const body = symbol.body ?? "";
       return {
         contents: {
           kind: 'markdown',
-          value: `**${symbol.name}**\n\n${symbol.description}\n\nValue: ${symbol.value}`
+          value: `**${symbol.name}** (macro)\n\n\`\`\`sbpf-asm\n${sig}\n${body}\n.endm\n\`\`\``
         }
       };
     }
+    return {
+      contents: {
+        kind: 'markdown',
+        value: `**${symbol.name}**\n\n${symbol.description}\n\nValue: ${symbol.value}`
+      }
+    };
   }
 
   return null;
 });
 
-connection.onDefinition((params: TextDocumentPositionParams): Definition | null => {
+function findSymbol(preferredUri: string, name: string): Symbol | undefined {
+  const preferred = documentSymbols.get(preferredUri);
+  const hit = preferred?.find((s) => s.name === name);
+  if (hit) return hit;
+  for (const [uri, syms] of documentSymbols) {
+    if (uri === preferredUri) continue;
+    const s = syms.find((sym) => sym.name === name);
+    if (s) return s;
+  }
+  return undefined;
+}
+
+connection.onDefinition((params: TextDocumentPositionParams): Definition | LocationLink[] | null => {
   const document = documents.get(params.textDocument.uri);
   if (!document) { return null; }
 
   const position = params.position;
+
+  // .include "path" — jump to the included file. Highlight the entire path inside the quotes.
+  const lineText = document.getText({
+    start: { line: position.line, character: 0 },
+    end: { line: position.line, character: Number.MAX_SAFE_INTEGER }
+  });
+  const includeRegex = /^(\s*\.include\s+")([^"]*)"/;
+  const includeMatch = lineText.match(includeRegex);
+  if (includeMatch) {
+    const pathStart = includeMatch[1].length;
+    const pathEnd = pathStart + includeMatch[2].length;
+    if (position.character >= pathStart && position.character <= pathEnd) {
+      try {
+        const docPath = fileURLToPath(document.uri);
+        const target = path.resolve(path.dirname(docPath), includeMatch[2]);
+        if (fs.existsSync(target)) {
+          const targetRange = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+          return [{
+            originSelectionRange: {
+              start: { line: position.line, character: pathStart },
+              end: { line: position.line, character: pathEnd }
+            },
+            targetUri: pathToFileURL(target).toString(),
+            targetRange,
+            targetSelectionRange: targetRange
+          }];
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+
   const wordRange = getWordRangeAtPosition(document, position);
   const word = document.getText(wordRange);
   if (!word) {
     return null;
   }
 
-  const symbols = documentSymbols.get(document.uri);
-  if (symbols) {
-    const symbol = symbols.find((s) => s.name === word);
-    
-    if (symbol) {
-      // Get the line where the symbol is defined.
-      const definitionLineText = document.getText({
+  const [symbol, symbolUri] = findSymbolWithUri(document.uri, word);
+  if (!symbol || !symbolUri) return null;
+
+  const defDoc = documents.get(symbolUri);
+  const definitionLineText = defDoc
+    ? defDoc.getText({
         start: { line: symbol.line, character: 0 },
         end: { line: symbol.line, character: Number.MAX_SAFE_INTEGER }
-      });
-      
-      let startChar = 0;
-      let endChar = symbol.name.length;
-      
-      if (symbol.type === SymbolType.LABEL) {
-        const labelMatch = definitionLineText.match(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):/);
-        if (labelMatch) {
-          startChar = labelMatch[1].length;
-          endChar = startChar + labelMatch[2].length;
-        }
-      } else if (symbol.type === SymbolType.EQU) {
-        const equMatch = definitionLineText.match(/^(\s*\.equ\s+)([a-zA-Z_][a-zA-Z0-9_]*)/);
-        if (equMatch) {
-          startChar = equMatch[1].length;
-          endChar = startChar + equMatch[2].length;
-        }
-      }
+      })
+    : "";
 
-      const location: Location = {
-        uri: document.uri,
-        range: {
-          start: { line: symbol.line, character: startChar },
-          end: { line: symbol.line, character: endChar }
-        }
-      };
-      return location;
+  let startChar = 0;
+  let endChar = symbol.name.length;
+
+  if (symbol.type === SymbolType.LABEL) {
+    const labelMatch = definitionLineText.match(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):/);
+    if (labelMatch) {
+      startChar = labelMatch[1].length;
+      endChar = startChar + labelMatch[2].length;
+    }
+  } else if (symbol.type === SymbolType.EQU) {
+    const equMatch = definitionLineText.match(/^(\s*\.equ\s+)([a-zA-Z_][a-zA-Z0-9_]*)/);
+    if (equMatch) {
+      startChar = equMatch[1].length;
+      endChar = startChar + equMatch[2].length;
+    }
+  } else if (symbol.type === SymbolType.MACRO) {
+    const macroMatch = definitionLineText.match(/^(\s*\.macro\s+)([a-zA-Z_][a-zA-Z0-9_]*)/);
+    if (macroMatch) {
+      startChar = macroMatch[1].length;
+      endChar = startChar + macroMatch[2].length;
     }
   }
 
-  return null;
+  return {
+    uri: symbolUri,
+    range: {
+      start: { line: symbol.line, character: startChar },
+      end: { line: symbol.line, character: endChar }
+    }
+  };
 });
+
+function findSymbolWithUri(preferredUri: string, name: string): [Symbol | undefined, string | undefined] {
+  const preferred = documentSymbols.get(preferredUri);
+  const hit = preferred?.find((s) => s.name === name);
+  if (hit) return [hit, preferredUri];
+  for (const [uri, syms] of documentSymbols) {
+    if (uri === preferredUri) continue;
+    const s = syms.find((sym) => sym.name === name);
+    if (s) return [s, uri];
+  }
+  return [undefined, undefined];
+}
 
 connection.onReferences((params: ReferenceParams): Location[] => {
   const document = documents.get(params.textDocument.uri);
@@ -514,8 +744,39 @@ function parseDocumentSymbols(document: TextDocument): void {
   const symbols: Symbol[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
+    const raw = lines[i];
+    const line = raw.trim();
+
+    // Parse .macro directives: ".macro NAME arg1, arg2, ..." ... ".endm"
+    const macroMatch = line.match(/^\.macro\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(.*)$/);
+    if (macroMatch) {
+      const name = macroMatch[1];
+      const args = macroMatch[2]
+        .split(",")
+        .map((a) => a.trim())
+        .filter((a) => a.length > 0);
+      const bodyLines: string[] = [];
+      let endLine = i;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().startsWith(".endm")) {
+          endLine = j;
+          break;
+        }
+        bodyLines.push(lines[j]);
+      }
+      symbols.push({
+        name,
+        value: args.length > 0 ? `${name} ${args.join(", ")}` : name,
+        type: SymbolType.MACRO,
+        line: i,
+        endLine,
+        args,
+        body: bodyLines.join("\n"),
+        description: `Macro definition`
+      });
+      continue;
+    }
+
     // Parse .equ directives.
     const equMatch = line.match(/^\.equ\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*,\s*(.+)$/);
     if (equMatch) {
@@ -529,7 +790,7 @@ function parseDocumentSymbols(document: TextDocument): void {
         description: `Constant definition`
       });
     }
-    
+
     // Parse jump labels (i.e. identifiers followed by colon).
     const labelMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(?:$|#.*$)/);
     if (labelMatch) {
@@ -545,6 +806,72 @@ function parseDocumentSymbols(document: TextDocument): void {
   }
 
   documentSymbols.set(document.uri, symbols);
+  parseIncludes(document.uri, text);
+}
+
+function completeIncludePath(docUri: string, partial: string): CompletionItem[] {
+  let docPath: string;
+  try {
+    docPath = fileURLToPath(docUri);
+  } catch {
+    return [];
+  }
+  const baseDir = path.dirname(docPath);
+  const trailingSep = partial.endsWith("/");
+  const dirPart = trailingSep ? partial : path.dirname(partial);
+  const filePart = trailingSep ? "" : path.basename(partial);
+  const searchDir = path.resolve(baseDir, dirPart === "" ? "." : dirPart);
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(searchDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const items: CompletionItem[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const isDir = entry.isDirectory();
+    const isAsm = entry.isFile() && /\.(s|sbpf)$/i.test(entry.name);
+    if (!isDir && !isAsm) continue;
+    if (filePart && !entry.name.toLowerCase().startsWith(filePart.toLowerCase())) continue;
+    items.push({
+      label: isDir ? entry.name + "/" : entry.name,
+      kind: isDir ? CompletionItemKind.Folder : CompletionItemKind.File,
+      insertText: isDir ? entry.name + "/" : entry.name,
+      command: isDir
+        ? { title: "Trigger suggest", command: "editor.action.triggerSuggest" }
+        : undefined
+    });
+  }
+  return items;
+}
+
+function parseIncludes(parentUri: string, parentText: string): void {
+  let parentPath: string;
+  try {
+    parentPath = fileURLToPath(parentUri);
+  } catch {
+    return;
+  }
+  const parentDir = path.dirname(parentPath);
+  const includeRegex = /^\s*\.include\s+"([^"]+)"/gm;
+  let match: RegExpExecArray | null;
+  while ((match = includeRegex.exec(parentText)) !== null) {
+    const includePath = path.resolve(parentDir, match[1]);
+    const includeUri = pathToFileURL(includePath).toString();
+    if (documents.get(includeUri)) continue; // live doc already tracked
+    if (documentSymbols.has(includeUri)) continue; // already parsed from disk
+    try {
+      if (!fs.existsSync(includePath)) continue;
+      const includeText = fs.readFileSync(includePath, "utf-8");
+      const includeDoc = TextDocument.create(includeUri, "sbpf-asm", 0, includeText);
+      parseDocumentSymbols(includeDoc);
+    } catch {
+      // Ignore unreadable includes
+    }
+  }
 }
 
 function getWordRangeAtPosition(
@@ -879,70 +1206,26 @@ function formatNum(n: number): string {
   return (n < 0 ? '-' : '') + '0x' + Math.abs(n).toString(16);
 }
 
-// Listen for document changes
+// Re-parse symbols on every edit (cheap, in-memory only).
 documents.onDidChangeContent((change) => {
   parseDocumentSymbols(change.document);
-  validateTextDocument(change.document);
-  validateBuild(change.document);
 });
 
-async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-  const text = textDocument.getText();
-
-  const diagnostics: Diagnostic[] = [];
-
-  // Check for .globl directive
-  const globlRegex = /\.globl\s+(\w+)/;
-  const globlMatch = globlRegex.exec(text);
-
-  if (!globlMatch) {
-    const diagnostic: Diagnostic = {
-      severity: DiagnosticSeverity.Error,
-      range: {
-        start: Position.create(0, 0),
-        end: Position.create(0, 0),
-      },
-      message: "Global entrypoint not defined. Try adding '.globl entrypoint'",
-      source: 'solana-ebpf',
-      code: 'missing-globl',
-    };
-    diagnostics.push(diagnostic);
-  } else {
-    const globlName = globlMatch[1];
-
-    // Check for label matching the globl name
-    const labelRegex = new RegExp(`^${globlName}:`, 'm');
-    if (!labelRegex.test(text)) {
-      const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Error,
-        range: {
-          start: Position.create(0, 0),
-          end: Position.create(0, 0),
-        },
-        message: `Global entrypoint label '${globlName}:' not found.`,
-        source: 'solana-ebpf',
-        code: 'missing-entrypoint',
-      };
-      diagnostics.push(diagnostic);
-    }
-  }
-
-  connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
-}
-
-// Listen for document save
+// Run the full build checker only on save — sbpf reads from disk, and
+// re-publishing stale positions would clobber VSCode's diagnostic tracking
+// while the user types above an error.
 documents.onDidSave((event) => {
   parseDocumentSymbols(event.document);
-  validateBuild(event.document);
+  validateBuild();
 });
 
-async function validateBuild(document: TextDocument): Promise<void> {
+async function validateBuild(): Promise<void> {
   if (validateBuildTimer) {
     clearTimeout(validateBuildTimer);
   }
 
   validateBuildTimer = setTimeout(async () => {
-    const diagnostics: Diagnostic[] = [];
+    const diagnosticsByUri = new Map<string, Diagnostic[]>();
 
     try {
       if (!workspaceRoot) {
@@ -952,41 +1235,177 @@ async function validateBuild(document: TextDocument): Promise<void> {
 
       const { stderr } = await execPromise("sbpf build", {
         cwd: workspaceRoot,
+        env: { ...process.env, NO_COLOR: "1" },
       }).catch((error) => error);
       const lines = stderr.split("\n");
-      for (let i = 0; i < lines.length - 1; i++) {
+      for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
-        // Match error message.
-        const errorMatch = line.match(/^error:\s*(.+?)\s+-->\s+(\d+):(\d+)/);
-        if (errorMatch) {
-          let message = errorMatch[1];
-          const lineNum = parseInt(errorMatch[2]) - 1;
-          const col = parseInt(errorMatch[3]) - 1;
 
+        // Match error header: "error: <message>" — line/col may be on this line via "--> L:C"
+        const errorMatch = line.match(/^error:\s*(.+)$/);
+        if (errorMatch) {
+          let headerMessage = errorMatch[1].trim();
+          let lineNum = 0;
+          let col = 0;
+          let haveLineCol = false;
+          const arrowMatch = headerMessage.match(/^(.*?)\s*-->\s*(\d+):(\d+)\s*$/);
+          if (arrowMatch) {
+            headerMessage = arrowMatch[1].trim();
+            lineNum = parseInt(arrowMatch[2]) - 1;
+            col = parseInt(arrowMatch[3]) - 1;
+            haveLineCol = true;
+          }
+          let message = headerMessage;
           let filePath: string | null = null;
+          let invocation: { path: string; line: number } | null = null;
+
+          const appendDetail = (detail: string) => {
+            const trimmed = detail.trim();
+            if (!trimmed) return;
+            if (message.toLowerCase().includes(trimmed.toLowerCase())) return;
+            message = message.replace(/:?\s*$/, "") + ": " + trimmed;
+          };
+
           for (let j = i + 1; j < lines.length; j++) {
-            const detailMatch = lines[j]?.match(/^\s*=\s+(.+)$/);
-            if (detailMatch) {
-              message = message.replace(/:?\s*$/, '') + ': ' + detailMatch[1];
-            }
-            const fileMatch = lines[j]?.match(/┌─\s+(.+?):\d+:\d+$/);
+            const next = lines[j];
+            if (!next || next.startsWith("error:")) break;
+
+            // "  ┌─ <path>:<line>:<col>" — path always; line/col only if we don't already have it
+            const fileMatch = next.match(/┌─\s+(.+?):(\d+):(\d+)\s*$/);
             if (fileMatch) {
               filePath = fileMatch[1];
-              break;
+              if (!haveLineCol) {
+                lineNum = parseInt(fileMatch[2]) - 1;
+                col = parseInt(fileMatch[3]) - 1;
+              }
+              continue;
+            }
+            // "  │ ^^^^ <detail>"  — caret annotation with extra context
+            const caretMatch = next.match(/│\s+\^+\s+(.+?)\s*$/);
+            if (caretMatch) {
+              appendDetail(caretMatch[1]);
+              continue;
+            }
+            // "  = <detail>" — extra context line
+            const detailMatch = next.match(/^\s*=\s+(.+)$/);
+            if (detailMatch) {
+              const detail = detailMatch[1];
+              // "in expansion of macro 'X', invoked at <path>:<line>"
+              const invMatch = detail.match(/invoked at\s+(.+?):(\d+)\s*$/);
+              if (invMatch) {
+                invocation = { path: invMatch[1], line: parseInt(invMatch[2]) - 1 };
+              }
+              appendDetail(detail);
             }
           }
 
-          if (filePath && document.uri.endsWith(filePath)) {
+          if (filePath) {
+            const absPath = path.resolve(workspaceRoot, filePath);
+            const uri = pathToFileURL(absPath).toString();
+            const targetDoc = documents.get(uri);
             const position = Position.create(lineNum, col);
-            const range = getWordRangeAtPosition(document, position);
-            diagnostics.push({
+            const range = targetDoc
+              ? getWordRangeAtPosition(targetDoc, position)
+              : Range.create(position, Position.create(lineNum, col + 1));
+
+            // Ensure the range covers the token at the reported column
+            // instead of a zero-width or single-character range.
+            if (targetDoc && range.start.character === range.end.character) {
+              const lineText = targetDoc.getText({
+                start: Position.create(lineNum, 0),
+                end: Position.create(lineNum, Number.MAX_SAFE_INTEGER)
+              });
+              // Find the non-whitespace span that contains `col`. If `col` lands on
+              // whitespace, skip forward to the next token.
+              let tStart = col;
+              while (tStart > 0 && /\S/.test(lineText.charAt(tStart - 1))) tStart--;
+              while (tStart < lineText.length && /\s/.test(lineText.charAt(tStart))) tStart++;
+              let tEnd = tStart;
+              while (tEnd < lineText.length && /\S/.test(lineText.charAt(tEnd))) tEnd++;
+              if (tEnd > tStart) {
+                range.start = Position.create(lineNum, tStart);
+                range.end = Position.create(lineNum, tEnd);
+              }
+              // Fallback: if no token found near col, use the first token on the line.
+              const tokenMatch = tEnd > tStart ? null : lineText.match(/^(\s*)(\S+)/);
+              if (tokenMatch) {
+                range.start = Position.create(lineNum, tokenMatch[1].length);
+                range.end = Position.create(lineNum, tokenMatch[1].length + tokenMatch[2].length);
+              }
+            }
+
+            const list = diagnosticsByUri.get(uri) ?? [];
+            list.push({
               severity: DiagnosticSeverity.Error,
               range,
               message,
               source: "solana-ebpf",
               code: "build-error",
             });
+            diagnosticsByUri.set(uri, list);
+
+            // Surface the error in the file the user is actually editing.
+            // Prefer sbpf's own "invoked at <path>:<line>" hint (precise call site);
+            // fall back to highlighting the .include directive in open parent docs.
+            if (invocation) {
+              const invAbs = path.resolve(workspaceRoot, invocation.path);
+              const invUri = pathToFileURL(invAbs).toString();
+              if (invUri !== uri) {
+                const invDoc = documents.get(invUri);
+                let invRange = Range.create(
+                  Position.create(invocation.line, 0),
+                  Position.create(invocation.line, Number.MAX_SAFE_INTEGER)
+                );
+                if (invDoc) {
+                  const invLineText = invDoc.getText({
+                    start: Position.create(invocation.line, 0),
+                    end: Position.create(invocation.line, Number.MAX_SAFE_INTEGER)
+                  });
+                  const tok = invLineText.match(/^(\s*)(\S+)/);
+                  if (tok) {
+                    invRange = Range.create(
+                      Position.create(invocation.line, tok[1].length),
+                      Position.create(invocation.line, tok[1].length + tok[2].length)
+                    );
+                  }
+                }
+                const invList = diagnosticsByUri.get(invUri) ?? [];
+                invList.push({
+                  severity: DiagnosticSeverity.Error,
+                  range: invRange,
+                  message,
+                  source: "solana-ebpf",
+                  code: "build-error",
+                });
+                diagnosticsByUri.set(invUri, invList);
+              }
+            } else {
+              for (const doc of documents.all()) {
+                if (doc.uri === uri) continue;
+                const docText = doc.getText();
+                const docLines = docText.split('\n');
+                const basename = path.basename(filePath);
+                for (let li = 0; li < docLines.length; li++) {
+                  const incMatch = docLines[li].match(/^(\s*)(\.include\s+.*)/);
+                  if (incMatch && docLines[li].includes(basename)) {
+                    const incStart = incMatch[1].length;
+                    const incEnd = incStart + incMatch[2].length;
+                    const parentList = diagnosticsByUri.get(doc.uri) ?? [];
+                    parentList.push({
+                      severity: DiagnosticSeverity.Error,
+                      range: Range.create(
+                        Position.create(li, incStart),
+                        Position.create(li, incEnd)
+                      ),
+                      message: `${path.basename(filePath)}:${lineNum + 1}:${col + 1} — ${message}`,
+                      source: "solana-ebpf",
+                      code: "build-error-include",
+                    });
+                    diagnosticsByUri.set(doc.uri, parentList);
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -994,8 +1413,81 @@ async function validateBuild(document: TextDocument): Promise<void> {
       // Ignore error
     }
 
-    connection.sendDiagnostics({ uri: document.uri, diagnostics });
+    // Clear diagnostics from files that previously had errors but no longer do.
+    for (const uri of lastBuildDiagnosticUris) {
+      if (!diagnosticsByUri.has(uri)) {
+        connection.sendDiagnostics({ uri, diagnostics: [] });
+      }
+    }
+    for (const [uri, diags] of diagnosticsByUri) {
+      connection.sendDiagnostics({ uri, diagnostics: diags });
+    }
+    lastBuildDiagnosticUris = new Set(diagnosticsByUri.keys());
   }, VALIDATE_BUILD_DEBOUNCE_MS);
+}
+
+function splitMacroArgs(s: string): string[] {
+  const args: string[] = [];
+  let cur = '';
+  let inString = false;
+  let prev = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      cur += c;
+      if (c === '"' && prev !== '\\') inString = false;
+    } else if (c === '"') {
+      inString = true;
+      cur += c;
+    } else if (c === ',') {
+      if (cur.trim()) args.push(cur.trim());
+      cur = '';
+    } else {
+      cur += c;
+    }
+    prev = c;
+  }
+  if (cur.trim()) args.push(cur.trim());
+  return args;
+}
+
+const EXPAND_MARKER_RE = /^(\s*)\/\/\s*sbpf:expand\s+(.+?)\s*$/;
+const END_MARKER_RE = /^(\s*)\/\/\s*sbpf:end\s*$/;
+
+function expandMacroBody(symbol: Symbol, args: string[], indent: string): string | null {
+  if (symbol.body === undefined || !symbol.args) return null;
+  const argMap = new Map<string, string>();
+  for (let i = 0; i < symbol.args.length; i++) {
+    argMap.set(symbol.args[i], args[i] ?? '');
+  }
+  let expanded = symbol.body;
+  // Longest names first, so \foo doesn't eat the prefix of \foobar.
+  const names = Array.from(argMap.keys()).sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const val = argMap.get(name) ?? '';
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // \name\() — GAS concatenation separator
+    expanded = expanded.replace(new RegExp(`\\\\${escaped}\\\\\\(\\)`, 'g'), val);
+    // \name as a word
+    expanded = expanded.replace(new RegExp(`\\\\${escaped}\\b`, 'g'), val);
+  }
+  const lines = expanded.split('\n').map((l) => l.replace(/\s+$/, ''));
+  // Preserve relative indentation: dedent by the common whitespace prefix
+  // shared by non-empty lines, then prepend the caller's indent.
+  let minIndent = Infinity;
+  for (const l of lines) {
+    if (!l.length) continue;
+    const lead = l.match(/^[\t ]*/)?.[0].length ?? 0;
+    if (lead < minIndent) minIndent = lead;
+  }
+  if (!isFinite(minIndent)) minIndent = 0;
+  return lines.map((l) => l.length ? indent + l.slice(minIndent) : '').join('\n');
+}
+
+function expandMacroWithMarkers(symbol: Symbol, args: string[], indent: string, call: string): string | null {
+  const body = expandMacroBody(symbol, args, indent);
+  if (body === null) return null;
+  return `${indent}// sbpf:expand ${call}\n${body}\n${indent}// sbpf:end`;
 }
 
 connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
@@ -1003,6 +1495,92 @@ connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
   if (!document) { return []; }
 
   const codeActions: CodeAction[] = [];
+
+  // Refactor: expand macro call on the current line
+  const startLine = params.range.start.line;
+  const endLine = params.range.end.line;
+  const allLines = document.getText().split('\n');
+  for (let li = startLine; li <= endLine; li++) {
+    const lineText = allLines[li] ?? '';
+    const m = lineText.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/);
+    if (!m) continue;
+    const [, indent, name, rest] = m;
+    const symbol = findSymbol(document.uri, name);
+    if (!symbol || symbol.type !== SymbolType.MACRO) continue;
+    const callArgs = splitMacroArgs(rest);
+    const call = rest.trim().length > 0 ? `${name} ${rest.trim()}` : name;
+    const expanded = expandMacroWithMarkers(symbol, callArgs, indent, call);
+    if (expanded === null) continue;
+    codeActions.push({
+      title: `Expand macro ${name}`,
+      kind: CodeActionKind.RefactorInline,
+      edit: {
+        changes: {
+          [document.uri]: [
+            TextEdit.replace(
+              Range.create(
+                Position.create(li, 0),
+                Position.create(li, lineText.length)
+              ),
+              expanded
+            )
+          ]
+        }
+      }
+    });
+  }
+
+  // Refactor: collapse an expanded macro when the body is unmodified
+  for (let li = startLine; li <= endLine; li++) {
+    // Walk upward from `li` to find the nearest `// sbpf:expand ...` line
+    // without crossing a `// sbpf:end`.
+    let expandIdx = -1;
+    let call = '';
+    let markerIndent = '';
+    for (let j = li; j >= 0; j--) {
+      const t = allLines[j] ?? '';
+      if (END_MARKER_RE.test(t) && j !== li) break;
+      const em = t.match(EXPAND_MARKER_RE);
+      if (em) { expandIdx = j; markerIndent = em[1]; call = em[2]; break; }
+    }
+    if (expandIdx < 0) continue;
+    let endIdx = -1;
+    for (let j = expandIdx + 1; j < allLines.length; j++) {
+      if (END_MARKER_RE.test(allLines[j])) { endIdx = j; break; }
+      if (EXPAND_MARKER_RE.test(allLines[j])) break; // another block started; bail
+    }
+    if (endIdx < 0) continue;
+    if (li > endIdx) continue;
+
+    const nameMatch = call.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/);
+    if (!nameMatch) continue;
+    const [, mName, mRest] = nameMatch;
+    const macroSym = findSymbol(document.uri, mName);
+    if (!macroSym || macroSym.type !== SymbolType.MACRO) continue;
+    const expectedBody = expandMacroBody(macroSym, splitMacroArgs(mRest), markerIndent);
+    if (expectedBody === null) continue;
+    const currentBody = allLines.slice(expandIdx + 1, endIdx).join('\n');
+    if (currentBody !== expectedBody) continue; // user modified the expansion
+
+    codeActions.push({
+      title: `Collapse macro ${mName}`,
+      kind: CodeActionKind.RefactorInline,
+      edit: {
+        changes: {
+          [document.uri]: [
+            TextEdit.replace(
+              Range.create(
+                Position.create(expandIdx, 0),
+                Position.create(endIdx, (allLines[endIdx] ?? '').length)
+              ),
+              `${markerIndent}${call}`
+            )
+          ]
+        }
+      }
+    });
+    break; // one collapse action is enough for the selection
+  }
 
   for (const diagnostic of params.context.diagnostics) {
     if (diagnostic.source !== 'solana-ebpf' || !diagnostic.code) {
