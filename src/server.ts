@@ -94,7 +94,7 @@ let snippets = {
   // dst, imm[16, 32, 64]
   end: dst_end,
   exit: "",
-  call: "${1|abort,sol_log_,sol_log_64_,sol_log_compute_units_,sol_log_pubkey,sol_create_program_address,sol_try_find_program_address,sol_sha256,sol_keccak256,sol_secp256k1_recover,sol_blake3,sol_get_clock_sysvar,sol_get_epoch_schedule_sysvar,sol_get_fees_sysvar,sol_get_rent_sysvar,sol_get_last_restart_slot,sol_memcpy_,sol_memmove_,sol_memcmp_,sol_memset_,sol_invoke_signed_c,sol_invoke_signed_rust,sol_set_return_data,sol_get_return_data,sol_log_data,sol_get_processed_sibling_instruction,sol_get_stack_height,sol_curve_validate_point,sol_curve_group_op,sol_curve_multiscalar_mul,sol_curve_pairing_map,sol_alt_bn128_group_op,sol_big_mod_exp,sol_get_epoch_rewards_sysvar,sol_poseidon,sol_remaining_compute_units,sol_alt_bn128_compression|}"
+  call: "${1|abort,sol_log_,sol_log_64_,sol_log_compute_units_,sol_log_pubkey,sol_create_program_address,sol_try_find_program_address,sol_sha256,sol_sha512,sol_keccak256,sol_secp256k1_recover,sol_blake3,sol_get_clock_sysvar,sol_get_epoch_schedule_sysvar,sol_get_fees_sysvar,sol_get_rent_sysvar,sol_get_last_restart_slot,sol_memcpy_,sol_memmove_,sol_memcmp_,sol_memset_,sol_invoke_signed_c,sol_invoke_signed_rust,sol_set_return_data,sol_get_return_data,sol_log_data,sol_get_processed_sibling_instruction,sol_get_stack_height,sol_curve_validate_point,sol_curve_group_op,sol_curve_multiscalar_mul,sol_curve_decompress,sol_curve_pairing_map,sol_alt_bn128_group_op,sol_big_mod_exp,sol_get_epoch_rewards_sysvar,sol_get_sysvar,sol_get_epoch_stake,sol_poseidon,sol_remaining_compute_units,sol_alt_bn128_compression|}"
 };
 
 let opcodes = [
@@ -215,9 +215,9 @@ let opcodes = [
   { code: 'exit', label: 'exit', description: 'exit\n\nreturn r0', snippet: snippets.exit },
 ];
 
-// Taken from: https://github.com/solana-labs/solana/blob/27eff8408b7223bb3c4ab70523f8a8dca3ca6645/sdk/program/src/syscalls/definitions.rs#L39
-// Syscall descriptions taken from: https://web.archive.org/web/20231004144333/https://bpf.wtf/sol-0x04-syscalls/
-// TODO: Check for updates from https://github.com/anza-xyz/agave/blob/master/sdk/program/src/syscalls/definitions.rs
+// Taken from: https://github.com/anza-xyz/solana-sdk/blob/957d581205030a342a7909024e269bee7c69022e/define-syscall/src/definitions.rs
+// Syscall descriptions taken from: https://bpf.wtf/sol-0x04-syscalls
+// TODO: Check for updates from https://github.com/anza-xyz/solana-sdk/blob/master/define-syscall/src/definitions.rs
 let syscalls = [
   { label: 'abort', description: `panic!()\n\nAborts the VM with SyscallError::Abort and never returns.` },
   { label: 'sol_log_', description: `fn sol_log_(message: *const u8, len: u64)\n\nWrites a log entry to the Sealevel logging facility.` },
@@ -227,6 +227,7 @@ let syscalls = [
   { label: 'sol_create_program_address', description: 'fn sol_create_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8) -> u64)\n\nCalculates a program-derived address (PDA) from the given program ID and seed list.' },
   { label: 'sol_try_find_program_address', description: 'fn sol_try_find_program_address(seeds_addr: *const u8, seeds_len: u64, program_id_addr: *const u8, address_bytes_addr: *const u8, bump_seed_addr: *const u8) -> u64)\n\nCalculates a program-derived address (PDA) and bump seed from the given program ID and seed list.' },
   { label: 'sol_sha256', description: 'fn sol_sha256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)\n\nCalculates the SHA-256 hash for the given byte inputs.' },
+  { label: 'sol_sha512', description: 'fn sol_sha512(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)\n\nCalculates the SHA-512 hash for the given byte inputs.' },
   { label: 'sol_keccak256', description: 'fn sol_keccak256(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)\n\nCalculates the Keccak-256 hash for the given byte inputs.' },
   { label: 'sol_secp256k1_recover', description: 'fn sol_secp256k1_recover(hash: *const u8, recovery_id: u64, signature: *const u8, result: *mut u8) -> u64)\n\nRecovers a secp256k1 public key from a signed message.' },
   { label: 'sol_blake3', description: 'fn sol_blake3(vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)\n\nCalculates the BLAKE3 hash for the given byte inputs.' },
@@ -249,6 +250,7 @@ let syscalls = [
   { label: 'sol_curve_validate_point', description: 'fn sol_curve_validate_point(curve_id: u64, point_addr: *const u8, result: *mut u8) -> u64)\n\nValidates an elliptic curve point. Returns 0 if the point is valid, otherwise 1.' },
   { label: 'sol_curve_group_op', description: 'fn sol_curve_group_op(curve_id: u64, group_op: u64, left_input_addr: *const u8, right_input_addr: *const u8, result_point_addr: *mut u8) -> u64)\n\nProvides elliptic curve group operations. Returns 0 on success, otherwise 1.' },
   { label: 'sol_curve_multiscalar_mul', description: 'fn sol_curve_multiscalar_mul(curve_id: u64, scalars_addr: *const u8, points_addr: *const u8, points_len: u64, result_point_addr: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_curve_decompress', description: 'fn sol_curve_decompress(curve_id: u64, point: *const u8, result: *mut u8) -> u64)\n\nDecompresses a compressed elliptic curve point for the selected curve into its full point representation.' },
   { label: 'sol_curve_pairing_map', description: 'fn sol_curve_pairing_map(curve_id: u64, point: *const u8, result: *mut u8) -> u64)' }, //Needs Description
   { label: 'sol_alt_bn128_group_op', description: 'fn sol_alt_bn128_group_op(group_op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description
   { label: 'sol_big_mod_exp', description: `fn sol_big_mod_exp(params: *const u8, result: *mut u8) -> u64)\n\nPerforms Bignumber Modular Exponentiation. Takes in a pointer to BigModExpParams and writes output to a mutable pointer with length of modulus_len. BigModExpParams is defined as follows:
@@ -272,6 +274,8 @@ pub struct EpochRewards {
     pub distributed_rewards: u64,
     pub distribution_complete_block_height: u64,
 }` },
+  { label: 'sol_get_sysvar', description: 'fn sol_get_sysvar(sysvar_id_addr: *const u8, result: *mut u8, offset: u64, length: u64) -> u64)\n\nCopies a requested sysvar payload into program memory using the provided sysvar identifier, offset, and length.' },
+  { label: 'sol_get_epoch_stake', description: 'fn sol_get_epoch_stake(vote_address: *const u8) -> u64)\n\nLooks up the current epoch stake delegated to the supplied vote account and writes it to the output pointer.' },
   { label: 'sol_poseidon', description: 'fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' }, //Needs Description
   { label: 'sol_remaining_compute_units', description: 'fn sol_remaining_compute_units() -> u64)\n\nWrites remaining compute units to the pointer in r1' },
   { label: 'sol_alt_bn128_compression', description: 'fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description

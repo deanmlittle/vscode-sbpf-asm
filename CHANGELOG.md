@@ -4,6 +4,11 @@ All notable changes to the "sbpf-assembly" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Changed
+- Added autocomplete and hover metadata for sol_sha512, sol_curve_decompress, sol_get_sysvar, and sol_get_epoch_stake
+
 ## [0.0.5] - 2025-08-26
 
 ### Changed
