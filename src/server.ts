@@ -100,10 +100,10 @@ const syscalls = [
   { label: 'sol_get_stack_height', description: 'fn sol_get_stack_height() -> u64)\n\nReturns the height of the Sealevel invocation stack, which is 1 at transaction level and increases for every cross-program invocation. Note that this is unrelated to the SBF call stack.' },
   { label: 'sol_curve_validate_point', description: 'fn sol_curve_validate_point(curve_id: u64, point_addr: *const u8, result: *mut u8) -> u64)\n\nValidates an elliptic curve point. Returns 0 if the point is valid, otherwise 1.' },
   { label: 'sol_curve_group_op', description: 'fn sol_curve_group_op(curve_id: u64, group_op: u64, left_input_addr: *const u8, right_input_addr: *const u8, result_point_addr: *mut u8) -> u64)\n\nProvides elliptic curve group operations. Returns 0 on success, otherwise 1.' },
-  { label: 'sol_curve_multiscalar_mul', description: 'fn sol_curve_multiscalar_mul(curve_id: u64, scalars_addr: *const u8, points_addr: *const u8, points_len: u64, result_point_addr: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_curve_multiscalar_mul', description: 'fn sol_curve_multiscalar_mul(curve_id: u64, scalars_addr: *const u8, points_addr: *const u8, points_len: u64, result_point_addr: *mut u8) -> u64)\n\nPerforms multi-scalar multiplication on Curve25519 Edwards or Ristretto points. Returns 0 on success, otherwise 1.' },
   { label: 'sol_curve_decompress', description: 'fn sol_curve_decompress(curve_id: u64, point: *const u8, result: *mut u8) -> u64)\n\nDecompresses a compressed elliptic curve point for the selected curve into its full point representation.' },
-  { label: 'sol_curve_pairing_map', description: 'fn sol_curve_pairing_map(curve_id: u64, point: *const u8, result: *mut u8) -> u64)' }, //Needs Description
-  { label: 'sol_alt_bn128_group_op', description: 'fn sol_alt_bn128_group_op(group_op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_curve_pairing_map', description: 'fn sol_curve_pairing_map(curve_id: u64, num_pairs: u64, g1_points: *const u8, g2_points: *const u8, result: *mut u8) -> u64)\n\nComputes the pairing map for `num_pairs` G1/G2 point pairs on the selected curve. Returns 0 on success, otherwise 1.' },
+  { label: 'sol_alt_bn128_group_op', description: 'fn sol_alt_bn128_group_op(group_op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)\n\nPerforms alt_bn128 (BN254) group operations: G1 addition, G1 multiplication, and pairing check. Returns 0 on success and a non-zero error code on failure.' },
   { label: 'sol_big_mod_exp', description: `fn sol_big_mod_exp(params: *const u8, result: *mut u8) -> u64)\n\nPerforms Bignumber Modular Exponentiation. Takes in a pointer to BigModExpParams and writes output to a mutable pointer with length of modulus_len. BigModExpParams is defined as follows:
     
 #[repr(C)]
@@ -128,9 +128,9 @@ pub struct EpochRewards {
   { label: 'sol_get_sysvar', description: 'fn sol_get_sysvar(sysvar_id_addr: *const u8, result: *mut u8, offset: u64, length: u64) -> u64)\n\nCopies a requested sysvar payload into program memory using the provided sysvar identifier, offset, and length.' },
   { label: 'sol_get_epoch_stake', description: 'fn sol_get_epoch_stake(vote_address: *const u8) -> u64)\n\nLooks up the current epoch stake delegated to the supplied vote account and writes it to the output pointer.' },
   { label: 'sol_panic_', description: 'fn sol_panic_(filename: *const u8, filename_len: u64, line: u64, column: u64) -> !)\n\nAborts execution with panic metadata describing the source filename, line, and column.' },
-  { label: 'sol_poseidon', description: 'fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_poseidon', description: 'fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u8, val_len: u64, hash_result: *mut u8) -> u64)\n\nComputes a Poseidon hash over inputs.' },
   { label: 'sol_remaining_compute_units', description: 'fn sol_remaining_compute_units() -> u64)\n\nWrites remaining compute units to the pointer in r1' },
-  { label: 'sol_alt_bn128_compression', description: 'fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)' }, //Needs Description
+  { label: 'sol_alt_bn128_compression', description: 'fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64)\n\nCompresses and decompresses alt_bn128 G1 and G2 points. Returns 0 on success and a non-zero error code on failure.' },
 ];
 
 const snippets = {
