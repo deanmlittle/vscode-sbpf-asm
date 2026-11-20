@@ -1,0 +1,19 @@
+{
+  "grammars": [
+    {
+      "name": "sbpf",
+      "camelcase": "Sbpf",
+      "scope": "source.sbpf",
+      "path": ".",
+      "file-types": [
+        "s",
+        "sbpf"
+      ]
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "sBPF assembly grammar for tree-sitter"
+  }
+}

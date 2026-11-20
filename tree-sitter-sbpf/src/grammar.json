@@ -1,0 +1,419 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
+  "name": "sbpf",
+  "word": "identifier",
+  "rules": {
+    "source_file": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "_statement"
+                  },
+                  {
+                    "type": "BLANK"
+                  }
+                ]
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_newline"
+              }
+            ]
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_statement"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "_newline": {
+      "type": "PATTERN",
+      "value": "\\n"
+    },
+    "_statement": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "label"
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "directive"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "instruction"
+                    }
+                  ]
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "directive"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "instruction"
+        }
+      ]
+    },
+    "label": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[0-9]+"
+              },
+              {
+                "type": "PATTERN",
+                "value": "([A-Za-z_][A-Za-z0-9_]*|\\\\[A-Za-z_][A-Za-z0-9_]*|\\\\@|\\\\\\(\\))+"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": ":"
+          }
+        ]
+      }
+    },
+    "directive": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "directive_name"
+          }
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_operand"
+          }
+        }
+      ]
+    },
+    "directive_name": {
+      "type": "PATTERN",
+      "value": "\\.[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "instruction": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "mnemonic",
+              "content": {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                "named": true,
+                "value": "mnemonic"
+              }
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_operand"
+              }
+            }
+          ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "mnemonic",
+              "content": {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "macro_argument"
+                },
+                "named": true,
+                "value": "mnemonic"
+              }
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_operand"
+              }
+            }
+          ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "*"
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_operand"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_operand": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "number"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "numeric_label_reference"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "string"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_argument"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "memory_operand"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "parenthesized"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "operator"
+        },
+        {
+          "type": "STRING",
+          "value": ","
+        }
+      ]
+    },
+    "memory_operand": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_operand"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        }
+      ]
+    },
+    "parenthesized": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_operand"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "operator": {
+      "type": "PATTERN",
+      "value": "[+\\-*\\/%&|^<>=!~]+"
+    },
+    "identifier": {
+      "type": "PATTERN",
+      "value": "[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "number": {
+      "type": "TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "-?0[xX][0-9a-fA-F][0-9a-fA-F_]*"
+          },
+          {
+            "type": "PATTERN",
+            "value": "-?[0-9][0-9_]*"
+          }
+        ]
+      }
+    },
+    "numeric_label_reference": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "[0-9]+[fb]"
+        }
+      }
+    },
+    "string": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "\""
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "[^\"\\\\\\n]"
+                },
+                {
+                  "type": "PATTERN",
+                  "value": "\\\\."
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "\""
+          }
+        ]
+      }
+    },
+    "macro_argument": {
+      "type": "TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "\\\\[A-Za-z_][A-Za-z0-9_]*"
+          },
+          {
+            "type": "STRING",
+            "value": "\\@"
+          },
+          {
+            "type": "STRING",
+            "value": "\\()"
+          }
+        ]
+      }
+    },
+    "comment": {
+      "type": "TOKEN",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "#[^\\n]*"
+          },
+          {
+            "type": "PATTERN",
+            "value": ";[^\\n]*"
+          },
+          {
+            "type": "PATTERN",
+            "value": "\\/\\/[^\\n]*"
+          }
+        ]
+      }
+    }
+  },
+  "extras": [
+    {
+      "type": "PATTERN",
+      "value": "[ \\t\\r\\f]"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "comment"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": [],
+  "reserved": {}
+}
