@@ -4,3 +4,9 @@ node_modules
 .vscode-test/
 *.vsix
 .DS_Store
+
+# Zed extension build output
+zed/target
+zed/grammars
+zed/extension.wasm
+*.wasm

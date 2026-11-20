@@ -9,3 +9,7 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+
+# Zed extension and its tree-sitter grammar (not part of the VS Code package)
+zed/**
+tree-sitter-sbpf/**
